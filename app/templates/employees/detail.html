@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.name }} — Employee CRM{% endblock %}
+{% block page_title %}Employee Profile{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width:560px">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="avatar" style="width:40px;height:40px;font-size:16px">{{ employee.name[0].upper() }}</div>
+      <div>
+        <div style="font-weight:600;font-size:15px">{{ employee.name }}</div>
+        <div class="text-muted text-sm">{{ employee.email }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if current_user.role == 'admin' %}
+    <form method="post" action="/employees/{{ employee.id }}/edit">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input name="name" type="text" class="form-control" value="{{ employee.name }}" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Department</label>
+        <input name="department" type="text" class="form-control" value="{{ employee.department or '' }}" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select name="role" class="form-control">
+          <option value="employee" {% if employee.role.value=='employee' %}selected{% endif %}>Employee</option>
+          <option value="manager"  {% if employee.role.value=='manager'  %}selected{% endif %}>Manager</option>
+          <option value="admin"    {% if employee.role.value=='admin'    %}selected{% endif %}>Admin</option>
+        </select>
+      </div>
+      <div class="flex-gap">
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+        <a href="/employees/" class="btn btn-outline">Back</a>
+      </div>
+    </form>
+    {% else %}
+    <p><strong>Name:</strong> {{ employee.name }}</p>
+    <p style="margin-top:8px"><strong>Department:</strong> {{ employee.department or '—' }}</p>
+    <p style="margin-top:8px"><strong>Role:</strong> {{ employee.role.value }}</p>
+    <div style="margin-top:16px">
+      <a href="/employees/" class="btn btn-outline">← Back</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

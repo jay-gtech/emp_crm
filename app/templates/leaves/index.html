@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Leaves — Employee CRM{% endblock %}
+{% block page_title %}Leave Management{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+
+  <!-- Apply leave -->
+  <div class="card">
+    <div class="card-header"><h2>📝 Apply for Leave</h2></div>
+    <div class="card-body">
+      <form method="post" action="/leaves/apply">
+        <div class="form-group">
+          <label class="form-label">Leave Type</label>
+          <select name="leave_type" class="form-control">
+            <option value="casual">Casual</option>
+            <option value="sick">Sick</option>
+            <option value="annual">Annual</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Start Date</label>
+          <input name="start_date" type="date" class="form-control" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">End Date</label>
+          <input name="end_date" type="date" class="form-control" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reason</label>
+          <textarea name="reason" class="form-control" rows="2" placeholder="Optional reason..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit Request</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Balance card -->
+  <div class="card">
+    <div class="card-header"><h2>📊 Leave Balance {{ balance.year }}</h2></div>
+    <div class="card-body">
+      <div style="display:flex;gap:24px;margin-bottom:16px">
+        <div style="text-align:center">
+          <div style="font-size:36px;font-weight:700;color:var(--primary)">{{ balance.remaining }}</div>
+          <div class="text-muted">Remaining</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:36px;font-weight:700;color:var(--warning)">{{ balance.used }}</div>
+          <div class="text-muted">Used</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:36px;font-weight:700;color:var(--gray-400)">{{ balance.quota }}</div>
+          <div class="text-muted">Quota</div>
+        </div>
+      </div>
+      <div style="background:var(--gray-100);border-radius:99px;height:10px">
+        <div style="background:var(--primary);border-radius:99px;height:10px;
+             width:{{ [(balance.used / balance.quota * 100)|int, 100]|min }}%"></div>
+      </div>
+      <p class="text-muted text-sm" style="margin-top:8px">
+        {{ balance.used }} of {{ balance.quota }} days used
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Leave requests -->
+<div class="card">
+  <div class="card-header">
+    <h2>
+      {% if current_user.role == 'admin' %}All Leave Requests
+      {% elif current_user.role == 'manager' %}Pending Leave Requests
+      {% else %}My Leave Requests
+      {% endif %}
+    </h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          {% if current_user.role != 'employee' %}<th>Employee ID</th>{% endif %}
+          <th>Type</th><th>From</th><th>To</th><th>Days</th>
+          <th>Status</th><th>Reason</th>
+          {% if current_user.role in ('admin', 'manager') %}<th>Action</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for leave in leaves %}
+        <tr>
+          {% if current_user.role != 'employee' %}<td>#{{ leave.employee_id }}</td>{% endif %}
+          <td><span class="badge badge-blue">{{ leave.leave_type.value }}</span></td>
+          <td>{{ leave.start_date }}</td>
+          <td>{{ leave.end_date }}</td>
+          <td>{{ leave.total_days }}</td>
+          <td>
+            {% if leave.status.value == 'approved' %}
+              <span class="badge badge-green">Approved</span>
+            {% elif leave.status.value == 'rejected' %}
+              <span class="badge badge-red">Rejected</span>
+            {% else %}
+              <span class="badge badge-yellow">Pending</span>
+            {% endif %}
+          </td>
+          <td class="text-muted text-sm">{{ leave.reason or '—' }}</td>
+          {% if current_user.role in ('admin', 'manager') %}
+          <td>
+            {% if leave.status.value == 'pending' %}
+            <form method="post" action="/leaves/{{ leave.id }}/review" style="display:flex;gap:6px">
+              <input type="hidden" name="note" value="" />
+              <button name="action" value="approved" class="btn btn-success btn-sm">✓ Approve</button>
+              <button name="action" value="rejected" class="btn btn-danger btn-sm">✗ Reject</button>
+            </form>
+            {% else %}
+              <span class="text-muted text-sm">—</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" style="text-align:center;color:var(--gray-400);padding:32px">No leave requests found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

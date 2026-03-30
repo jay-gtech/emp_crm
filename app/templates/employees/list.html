@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Employees — Employee CRM{% endblock %}
+{% block page_title %}Employee Directory{% endblock %}
+{% block content %}
+
+<div class="flex-between mb-4">
+  <div class="flex-gap">
+    <!-- Department filter -->
+    <form method="get" action="/employees/" style="display:flex;gap:8px;align-items:center">
+      <select name="department" class="form-control" style="width:180px" onchange="this.form.submit()">
+        <option value="">All Departments</option>
+        {% for dept in departments %}
+        <option value="{{ dept }}" {% if selected_dept == dept %}selected{% endif %}>{{ dept }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  {% if current_user.role == 'admin' %}
+  <a href="/employees/new" class="btn btn-primary">➕ Add Employee</a>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Department</th>
+        {% if current_user.role == 'admin' %}<th>Actions</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in employees %}
+        <tr>
+          <td class="text-muted">{{ emp.id }}</td>
+          <td><a href="/employees/{{ emp.id }}">{{ emp.name }}</a></td>
+          <td class="text-muted">{{ emp.email }}</td>
+          <td>
+            {% if emp.role.value == 'admin' %}
+              <span class="badge badge-red">Admin</span>
+            {% elif emp.role.value == 'manager' %}
+              <span class="badge badge-blue">Manager</span>
+            {% else %}
+              <span class="badge badge-gray">Employee</span>
+            {% endif %}
+          </td>
+          <td>{{ emp.department or '—' }}</td>
+          {% if current_user.role == 'admin' %}
+          <td>
+            <a href="/employees/{{ emp.id }}" class="btn btn-outline btn-sm">Edit</a>
+            <form method="post" action="/employees/{{ emp.id }}/deactivate" style="display:inline;margin-left:4px">
+              <button class="btn btn-danger btn-sm"
+                      onclick="return confirm('Deactivate {{ emp.name }}?')">Deactivate</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:32px">No employees found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

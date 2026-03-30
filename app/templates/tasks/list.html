@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Tasks — Employee CRM{% endblock %}
+{% block page_title %}Tasks{% endblock %}
+{% block content %}
+
+<!-- Create task form (managers / admins) -->
+{% if current_user.role in ('admin', 'manager') %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header"><h2>➕ Assign New Task</h2></div>
+  <div class="card-body">
+    <form method="post" action="/tasks/create" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Title *</label>
+        <input name="title" type="text" class="form-control" placeholder="Task title" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assign To *</label>
+        <select name="assigned_to" class="form-control" required>
+          <option value="">-- Select Employee --</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.department or 'No Dept' }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2" placeholder="Optional details..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Priority</label>
+        <select name="priority" class="form-control">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Due Date</label>
+        <input name="due_date" type="date" class="form-control" />
+      </div>
+      <div style="grid-column:1/-1">
+        <button type="submit" class="btn btn-primary">Assign Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- Task list -->
+<div class="card">
+  <div class="card-header">
+    <h2>📋 Task List</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Title</th><th>Assigned To</th><th>Priority</th>
+          <th>Due Date</th><th>Status</th><th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td class="text-muted">#{{ task.id }}</td>
+          <td>
+            <strong>{{ task.title }}</strong>
+            {% if task.description %}
+            <br><span class="text-muted text-sm">{{ task.description[:60] }}{% if task.description|length > 60 %}…{% endif %}</span>
+            {% endif %}
+          </td>
+          <td>#{{ task.assigned_to }}</td>
+          <td>
+            {% if task.priority.value == 'high' %}
+              <span class="badge badge-red">High</span>
+            {% elif task.priority.value == 'medium' %}
+              <span class="badge badge-yellow">Medium</span>
+            {% else %}
+              <span class="badge badge-gray">Low</span>
+            {% endif %}
+          </td>
+          <td>{{ task.due_date or '—' }}</td>
+          <td>
+            {% if task.status.value == 'completed' %}
+              <span class="badge badge-green">Completed</span>
+            {% elif task.status.value == 'in_progress' %}
+              <span class="badge badge-blue">In Progress</span>
+            {% else %}
+              <span class="badge badge-gray">Pending</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/tasks/{{ task.id }}/status" style="display:flex;gap:6px;align-items:center">
+              <select name="status" class="form-control" style="width:auto;padding:3px 6px;font-size:12px">
+                <option value="pending" {% if task.status.value=='pending' %}selected{% endif %}>Pending</option>
+                <option value="in_progress" {% if task.status.value=='in_progress' %}selected{% endif %}>In Progress</option>
+                <option value="completed" {% if task.status.value=='completed' %}selected{% endif %}>Completed</option>
+              </select>
+              <button class="btn btn-outline btn-sm">Update</button>
+            </form>
+            {% if current_user.role in ('admin', 'manager') %}
+            <form method="post" action="/tasks/{{ task.id }}/delete" style="margin-top:4px">
+              <button class="btn btn-danger btn-sm" onclick="return confirm('Delete this task?')">Delete</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:32px">No tasks found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Add Employee — Employee CRM{% endblock %}
+{% block page_title %}Add New Employee{% endblock %}
+{% block content %}
+
+<div class="card" style="max-width:560px">
+  <div class="card-header"><h2>New Employee</h2></div>
+  <div class="card-body">
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/employees/new">
+      <div class="form-group">
+        <label class="form-label">Full Name *</label>
+        <input name="name" type="text" class="form-control" placeholder="John Doe" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email *</label>
+        <input name="email" type="email" class="form-control" placeholder="john@company.com" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password *</label>
+        <input name="password" type="password" class="form-control" placeholder="Temporary password" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role *</label>
+        <select name="role" class="form-control">
+          <option value="employee">Employee</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Department</label>
+        <input name="department" type="text" class="form-control" placeholder="Engineering, HR, Sales…" />
+      </div>
+      <div class="flex-gap" style="margin-top:8px">
+        <button type="submit" class="btn btn-primary">Create Employee</button>
+        <a href="/employees/" class="btn btn-outline">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

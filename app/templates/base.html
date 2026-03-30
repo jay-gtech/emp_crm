@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Employee CRM{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+  <style>
+    /* ---- Notification bell ---- */
+    .notif-wrap { position: relative; display: inline-flex; align-items: center; }
+    .notif-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 20px; line-height: 1; padding: 4px 6px;
+      color: var(--gray-600); position: relative;
+      transition: color .15s;
+    }
+    .notif-btn:hover { color: var(--primary); }
+    .notif-badge {
+      position: absolute; top: 0; right: 0;
+      background: var(--danger); color: #fff;
+      font-size: 10px; font-weight: 700;
+      min-width: 16px; height: 16px; border-radius: 99px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 3px; pointer-events: none;
+      opacity: 0; transition: opacity .2s;
+    }
+    .notif-badge.visible { opacity: 1; }
+    .notif-dropdown {
+      display: none;
+      position: absolute; top: calc(100% + 8px); right: 0;
+      width: 340px; background: #fff;
+      border-radius: var(--radius); box-shadow: var(--shadow-md);
+      border: 1px solid var(--gray-200);
+      z-index: 200; overflow: hidden;
+    }
+    .notif-dropdown.open { display: block; }
+    .notif-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid var(--gray-100);
+      font-size: 13px; font-weight: 600; color: var(--gray-800);
+    }
+    .notif-mark-btn {
+      font-size: 11px; color: var(--primary); background: none;
+      border: none; cursor: pointer; font-weight: 500;
+    }
+    .notif-mark-btn:hover { text-decoration: underline; }
+    .notif-list { max-height: 320px; overflow-y: auto; }
+    .notif-item {
+      padding: 10px 16px; border-bottom: 1px solid var(--gray-100);
+      font-size: 12.5px; line-height: 1.45; cursor: pointer;
+      transition: background .12s;
+    }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-item:hover { background: var(--gray-50); }
+    .notif-item.unread { background: var(--primary-light); }
+    .notif-item.unread:hover { background: #dbeafe; }
+    .notif-item-msg { color: var(--gray-800); margin-bottom: 3px; }
+    .notif-item-meta { color: var(--gray-400); font-size: 11px; }
+    .notif-empty {
+      padding: 24px 16px; text-align: center;
+      color: var(--gray-400); font-size: 13px;
+    }
+    .notif-type-task_assigned  { border-left: 3px solid var(--primary); }
+    .notif-type-leave_approved { border-left: 3px solid var(--success); }
+    .notif-type-leave_rejected { border-left: 3px solid var(--danger); }
+    .notif-type-info           { border-left: 3px solid var(--gray-400); }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <a class="sidebar-brand" href="/dashboard/">Emp<span>CRM</span></a>
+    <nav class="sidebar-nav">
+      <div class="nav-section-title">Main</div>
+      <a class="nav-link {% if request.url.path.startswith('/dashboard') %}active{% endif %}" href="/dashboard/">
+        <span class="icon">📊</span> Dashboard
+      </a>
+      <a class="nav-link {% if request.url.path.startswith('/attendance') %}active{% endif %}" href="/attendance/">
+        <span class="icon">🕐</span> Attendance
+      </a>
+      <a class="nav-link {% if request.url.path.startswith('/tasks') %}active{% endif %}" href="/tasks/">
+        <span class="icon">✅</span> Tasks
+      </a>
+      <a class="nav-link {% if request.url.path.startswith('/leaves') %}active{% endif %}" href="/leaves/">
+        <span class="icon">📅</span> Leaves
+      </a>
+      {% if current_user and current_user.role in ('admin', 'manager') %}
+      <div class="nav-section-title">Management</div>
+      <a class="nav-link {% if request.url.path.startswith('/employees') %}active{% endif %}" href="/employees/">
+        <span class="icon">👥</span> Employees
+      </a>
+      {% endif %}
+    </nav>
+    <div class="sidebar-footer">
+      {% if current_user %}
+        <div>{{ current_user.name }}</div>
+        <div style="color:var(--gray-400);font-size:11px;text-transform:capitalize">{{ current_user.role }}</div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <div class="main-content">
+    <header class="topbar">
+      <span class="topbar-title">{% block page_title %}{% endblock %}</span>
+      <div class="topbar-user">
+        {% if current_user %}
+          <!-- Notification bell -->
+          <div class="notif-wrap" id="notifWrap">
+            <button class="notif-btn" id="notifBtn" title="Notifications" aria-label="Notifications">
+              🔔
+              <span class="notif-badge" id="notifBadge"></span>
+            </button>
+            <div class="notif-dropdown" id="notifDropdown">
+              <div class="notif-header">
+                <span>🔔 Notifications</span>
+                <button class="notif-mark-btn" id="markAllBtn">Mark all read</button>
+              </div>
+              <div class="notif-list" id="notifList">
+                <div class="notif-empty">Loading…</div>
+              </div>
+            </div>
+          </div>
+          <div class="avatar">{{ current_user.name[0].upper() }}</div>
+          <span>{{ current_user.name }}</span>
+          <a href="/auth/logout" class="btn btn-outline btn-sm">Logout</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <main class="page-body">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% if current_user %}
+<script>
+(function () {
+  'use strict';
+  const btn      = document.getElementById('notifBtn');
+  const badge    = document.getElementById('notifBadge');
+  const dropdown = document.getElementById('notifDropdown');
+  const list     = document.getElementById('notifList');
+  const markAll  = document.getElementById('markAllBtn');
+  if (!btn) return;
+
+  // ── helpers ────────────────────────────────────────────────────────────
+  const typeIcon = {
+    task_assigned:  '📋',
+    leave_approved: '✅',
+    leave_rejected: '❌',
+    info:           'ℹ️',
+  };
+
+  function updateBadge(count) {
+    try {
+      badge.textContent = count > 9 ? '9+' : (count || '');
+      badge.classList.toggle('visible', count > 0);
+    } catch(e) {}
+  }
+
+  function renderList(notifications) {
+    try {
+      if (!notifications || notifications.length === 0) {
+        list.innerHTML = '<div class="notif-empty">You\'re all caught up! 🎉</div>';
+        return;
+      }
+      list.innerHTML = notifications.map(n => {
+        const icon = typeIcon[n.type] || 'ℹ️';
+        const cls  = ['notif-item', `notif-type-${n.type}`, n.is_read ? '' : 'unread'].join(' ');
+        return `<div class="${cls}" data-id="${n.id}" onclick="markOne(${n.id}, this)">
+          <div class="notif-item-msg">${icon} ${escHtml(n.message)}</div>
+          <div class="notif-item-meta">${n.created_at}</div>
+        </div>`;
+      }).join('');
+    } catch(e) {}
+  }
+
+  function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ── fetch notifications ─────────────────────────────────────────────
+  function fetchNotifs() {
+    fetch('/notifications/')
+      .then(r => r.json())
+      .then(data => {
+        updateBadge(data.unread_count || 0);
+        renderList(data.notifications || []);
+      })
+      .catch(() => {});
+  }
+
+  // Lightweight poll: only fetch the count (badge) every 60s
+  function pollUnread() {
+    try {
+      fetch('/notifications/unread')
+        .then(r => r.json())
+        .then(data => updateBadge(data.unread_count || 0))
+        .catch(() => {});
+    } catch(e) {}
+  }
+
+  // ── toggle dropdown ─────────────────────────────────────────────────
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const isOpen = dropdown.classList.toggle('open');
+    if (isOpen) fetchNotifs();
+  });
+
+  // Close on outside click
+  document.addEventListener('click', function (e) {
+    if (!document.getElementById('notifWrap').contains(e.target)) {
+      dropdown.classList.remove('open');
+    }
+  });
+
+  // ── mark all read ───────────────────────────────────────────────────
+  markAll.addEventListener('click', function (e) {
+    e.stopPropagation();
+    fetch('/notifications/read', { method: 'POST' })
+      .then(() => {
+        updateBadge(0);
+        // Visually un-highlight all unread items
+        list.querySelectorAll('.unread').forEach(el => el.classList.remove('unread'));
+      })
+      .catch(() => {});
+  });
+
+  // ── mark single as read ─────────────────────────────────────────────
+  window.markOne = function (id, el) {
+    try {
+      if (!el.classList.contains('unread')) return;
+      fetch(`/notifications/read/${id}`, { method: 'POST' })
+        .then(() => {
+          el.classList.remove('unread');
+          pollUnread();
+        })
+        .catch(() => {});
+    } catch(e) {}
+  };
+
+  // ── initial state + periodic poll ──────────────────────────────────
+  pollUnread();
+  setInterval(pollUnread, 60000);   // refresh badge every 60 s
+})();
+</script>
+{% endif %}
+</body>
+</html>

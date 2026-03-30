@@ -1,0 +1,604 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Employee CRM{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+<p class="text-muted mb-4">Welcome back, <strong>{{ current_user.name }}</strong> 👋</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 1 — TOP STAT CARDS  (unchanged)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="stats-grid">
+  <!-- Attendance today -->
+  <div class="stat-card {% if today_attendance and today_attendance.clock_in_time %}green{% else %}gray{% endif %}">
+    <div class="stat-value">
+      {% if today_attendance and today_attendance.clock_in_time %}
+        {% if today_attendance.clock_out_time %}Done{% else %}In{% endif %}
+      {% else %}
+        Out
+      {% endif %}
+    </div>
+    <div class="stat-label">Today's Attendance</div>
+  </div>
+
+  <!-- Leave balance -->
+  <div class="stat-card blue">
+    <div class="stat-value">{{ leave_balance.remaining }}</div>
+    <div class="stat-label">Leave Days Left ({{ leave_balance.year }})</div>
+  </div>
+
+  <!-- Tasks total -->
+  <div class="stat-card">
+    <div class="stat-value">{{ task_stats.total }}</div>
+    <div class="stat-label">
+      {% if current_user.role == 'employee' %}My Tasks{% else %}Assigned Tasks{% endif %}
+    </div>
+  </div>
+
+  <!-- Pending tasks -->
+  <div class="stat-card yellow">
+    <div class="stat-value">{{ task_stats.pending }}</div>
+    <div class="stat-label">Pending Tasks</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 2 — EMPLOYEE PERFORMANCE  (new)
+     Only rendered when the service returned data.
+     ═══════════════════════════════════════════════════════════════════════ -->
+{% if performance %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>📈 My Performance — This Week</h2>
+    <span class="text-muted text-sm">Mon → Today · {{ performance.days_worked }} day{{ 's' if performance.days_worked != 1 else '' }} worked</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px">
+
+      <!-- Hours worked -->
+      <div style="text-align:center;padding:12px;background:var(--primary-light);border-radius:var(--radius)">
+        <div style="font-size:26px;font-weight:700;color:var(--primary)">{{ performance.week_hours }}h</div>
+        <div class="text-muted text-sm">Total Hours</div>
+      </div>
+
+      <!-- Avg daily -->
+      <div style="text-align:center;padding:12px;background:var(--primary-light);border-radius:var(--radius)">
+        <div style="font-size:26px;font-weight:700;color:var(--primary)">{{ performance.avg_daily_hours }}h</div>
+        <div class="text-muted text-sm">Avg / Day</div>
+      </div>
+
+      <!-- Task completion -->
+      <div style="text-align:center;padding:12px;
+           background:{% if performance.task_completion_rate >= 75 %}var(--success-light){% elif performance.task_completion_rate >= 40 %}var(--warning-light){% else %}var(--danger-light){% endif %};
+           border-radius:var(--radius)">
+        <div style="font-size:26px;font-weight:700;
+             color:{% if performance.task_completion_rate >= 75 %}var(--success){% elif performance.task_completion_rate >= 40 %}var(--warning){% else %}var(--danger){% endif %}">
+          {{ performance.task_completion_rate }}%
+        </div>
+        <div class="text-muted text-sm">Task Completion</div>
+        <div class="text-sm text-muted">{{ performance.tasks_completed }}/{{ performance.tasks_assigned }}</div>
+      </div>
+
+      <!-- Break % -->
+      <div style="text-align:center;padding:12px;
+           background:{% if performance.break_percentage <= 15 %}var(--success-light){% elif performance.break_percentage <= 25 %}var(--warning-light){% else %}var(--danger-light){% endif %};
+           border-radius:var(--radius)">
+        <div style="font-size:26px;font-weight:700;
+             color:{% if performance.break_percentage <= 15 %}var(--success){% elif performance.break_percentage <= 25 %}var(--warning){% else %}var(--danger){% endif %}">
+          {{ performance.break_percentage }}%
+        </div>
+        <div class="text-muted text-sm">Break Time %</div>
+      </div>
+
+    </div>
+
+    <!-- Mini progress bar for task completion -->
+    {% if performance.tasks_assigned > 0 %}
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span class="text-muted text-sm">Task Progress</span>
+        <span class="text-sm">{{ performance.tasks_completed }} completed · {{ performance.tasks_assigned - performance.tasks_completed }} remaining</span>
+      </div>
+      <div style="background:var(--gray-100);border-radius:99px;height:7px">
+        <div style="background:var(--success);border-radius:99px;height:7px;
+             width:{{ [performance.task_completion_rate, 100]|min }}%;transition:width .3s"></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 3 — MANAGER INSIGHTS  (new, admin/manager only)
+     ═══════════════════════════════════════════════════════════════════════ -->
+{% if manager_insights and current_user.role in ('admin', 'manager') %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>👥 Team Overview — Today</h2>
+    <a href="/employees/" class="btn btn-outline btn-sm">View Employees</a>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px">
+
+      <div style="text-align:center;padding:12px;background:var(--gray-50);border-radius:var(--radius);border:1px solid var(--gray-100)">
+        <div style="font-size:28px;font-weight:700;color:var(--gray-800)">{{ manager_insights.total_employees }}</div>
+        <div class="text-muted text-sm">Total Employees</div>
+      </div>
+
+      <div style="text-align:center;padding:12px;background:var(--success-light);border-radius:var(--radius)">
+        <div style="font-size:28px;font-weight:700;color:var(--success)">{{ manager_insights.present_today }}</div>
+        <div class="text-muted text-sm">Present Today</div>
+      </div>
+
+      <div style="text-align:center;padding:12px;
+           background:{% if manager_insights.absent_today == 0 %}var(--gray-50){% else %}var(--danger-light){% endif %};
+           border-radius:var(--radius);
+           border:{% if manager_insights.absent_today == 0 %}1px solid var(--gray-100){% else %}none{% endif %}">
+        <div style="font-size:28px;font-weight:700;
+             color:{% if manager_insights.absent_today == 0 %}var(--gray-400){% else %}var(--danger){% endif %}">
+          {{ manager_insights.absent_today }}
+        </div>
+        <div class="text-muted text-sm">Absent Today</div>
+      </div>
+
+      <div style="text-align:center;padding:12px;
+           background:{% if manager_insights.late_clock_ins == 0 %}var(--gray-50){% else %}var(--warning-light){% endif %};
+           border-radius:var(--radius);
+           border:{% if manager_insights.late_clock_ins == 0 %}1px solid var(--gray-100){% else %}none{% endif %}">
+        <div style="font-size:28px;font-weight:700;
+             color:{% if manager_insights.late_clock_ins == 0 %}var(--gray-400){% else %}var(--warning){% endif %}">
+          {{ manager_insights.late_clock_ins }}
+        </div>
+        <div class="text-muted text-sm">Late Clock-ins</div>
+        <div class="text-sm text-muted">after 9:30 AM</div>
+      </div>
+
+      <div style="text-align:center;padding:12px;background:var(--warning-light);border-radius:var(--radius)">
+        <div style="font-size:28px;font-weight:700;color:var(--warning)">{{ manager_insights.on_break }}</div>
+        <div class="text-muted text-sm">On Break Now</div>
+      </div>
+
+    </div>
+
+    <!-- Attendance bar -->
+    {% if manager_insights.total_employees > 0 %}
+    <div style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span class="text-muted text-sm">Attendance Rate Today</span>
+        <span class="text-sm">{{ manager_insights.present_today }}/{{ manager_insights.total_employees }}</span>
+      </div>
+      <div style="background:var(--gray-100);border-radius:99px;height:7px">
+        <div style="background:var(--success);border-radius:99px;height:7px;
+             width:{{ [(manager_insights.present_today / manager_insights.total_employees * 100)|int, 100]|min }}%"></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 4 — ALERTS  (new)
+     ═══════════════════════════════════════════════════════════════════════ -->
+{% if alerts %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>🔔 Alerts</h2>
+    <span class="badge {% if alerts|length > 2 %}badge-red{% else %}badge-yellow{% endif %}">
+      {{ alerts|length }} alert{{ 's' if alerts|length != 1 else '' }}
+    </span>
+  </div>
+  <div class="card-body" style="padding:12px 20px">
+    {% for alert in alerts %}
+    <div class="alert alert-{{ 'danger' if alert.type == 'danger' else 'warning' }}"
+         style="margin-bottom:{% if not loop.last %}8px{% else %}0{% endif %}">
+      {{ alert.icon or '' }} {{ alert.message }}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 5 — TODAY'S STATUS + LEAVE BALANCE  (unchanged)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+
+  <!-- Today's attendance card -->
+  <div class="card">
+    <div class="card-header">
+      <h2>🕐 Today's Status</h2>
+      <a href="/attendance/" class="btn btn-outline btn-sm">Go to Attendance</a>
+    </div>
+    <div class="card-body">
+      {% if today_attendance and today_attendance.clock_in_time %}
+        <p><strong>Clock In:</strong> {{ today_attendance.clock_in_time.strftime('%H:%M') }}</p>
+        {% if today_attendance.clock_out_time %}
+          <p><strong>Clock Out:</strong> {{ today_attendance.clock_out_time.strftime('%H:%M') }}</p>
+          <p><strong>Total Hours:</strong> {{ today_attendance.total_hours or '-' }}h</p>
+        {% else %}
+          <p style="color:var(--success)"><span class="dot dot-green"></span>Currently working
+            {% if active_break %}(on break){% endif %}
+          </p>
+          {% if active_break %}
+            <p class="text-muted text-sm">Break started at {{ active_break.start_time.strftime('%H:%M') }}</p>
+          {% endif %}
+        {% endif %}
+        <p class="text-muted text-sm" style="margin-top:8px">
+          Mode: <strong>{{ today_attendance.work_mode.value }}</strong> |
+          Break: {{ "%.0f"|format((today_attendance.total_break_hours or 0) * 60) }} min
+        </p>
+      {% else %}
+        <p class="text-muted">You have not clocked in today.</p>
+        <form method="post" action="/attendance/clock-in" style="margin-top:12px">
+          <button class="btn btn-success">Clock In Now</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Leave balance card -->
+  <div class="card">
+    <div class="card-header">
+      <h2>📅 Leave Balance</h2>
+      <a href="/leaves/" class="btn btn-outline btn-sm">View Leaves</a>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:20px;margin-bottom:12px">
+        <div>
+          <div style="font-size:28px;font-weight:700;color:var(--primary)">{{ leave_balance.remaining }}</div>
+          <div class="text-muted text-sm">Remaining</div>
+        </div>
+        <div>
+          <div style="font-size:28px;font-weight:700;color:var(--warning)">{{ leave_balance.used }}</div>
+          <div class="text-muted text-sm">Used</div>
+        </div>
+        <div>
+          <div style="font-size:28px;font-weight:700;color:var(--gray-400)">{{ leave_balance.quota }}</div>
+          <div class="text-muted text-sm">Annual Quota</div>
+        </div>
+      </div>
+      <!-- Simple progress bar -->
+      <div style="background:var(--gray-100);border-radius:99px;height:8px">
+        <div style="background:var(--primary);border-radius:99px;height:8px;width:{{ [(leave_balance.used / leave_balance.quota * 100)|int, 100]|min }}%"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 6 — TASK SUMMARY  (enhanced with overdue count, layout intact)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="card mb-4" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>✅ Task Summary</h2>
+    <a href="/tasks/" class="btn btn-outline btn-sm">View All Tasks</a>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--gray-400)">{{ task_stats.pending }}</div>
+        <div class="text-muted text-sm">Pending</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--warning)">{{ task_stats.in_progress }}</div>
+        <div class="text-muted text-sm">In Progress</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--success)">{{ task_stats.completed }}</div>
+        <div class="text-muted text-sm">Completed</div>
+      </div>
+      {% if task_stats.overdue > 0 %}
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--danger)">{{ task_stats.overdue }}</div>
+        <div class="text-muted text-sm">Overdue</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SECTION 7 — PENDING LEAVE REQUESTS  (unchanged)
+     ═══════════════════════════════════════════════════════════════════════ -->
+{% if current_user.role in ('admin', 'manager') and pending_leaves %}
+<div class="card">
+  <div class="card-header">
+    <h2>⏳ Pending Leave Requests</h2>
+    <a href="/leaves/" class="btn btn-primary btn-sm">Review All</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Employee ID</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% for leave in pending_leaves[:5] %}
+        <tr>
+          <td>#{{ leave.employee_id }}</td>
+          <td><span class="badge badge-blue">{{ leave.leave_type.value }}</span></td>
+          <td>{{ leave.start_date }}</td>
+          <td>{{ leave.end_date }}</td>
+          <td>{{ leave.total_days }}</td>
+          <td>
+            <form method="post" action="/leaves/{{ leave.id }}/review" style="display:inline">
+              <input type="hidden" name="action" value="approved" />
+              <button class="btn btn-success btn-sm">Approve</button>
+            </form>
+            <form method="post" action="/leaves/{{ leave.id }}/review" style="display:inline;margin-left:4px">
+              <input type="hidden" name="action" value="rejected" />
+              <button class="btn btn-danger btn-sm">Reject</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+
+{# ═══════════════════════════════════════════════════════════════════════
+   MANAGER VIEW — visible only to admin / manager
+   All sections are additive; existing UI above is untouched.
+   ═══════════════════════════════════════════════════════════════════════ #}
+{% if current_user.role in ('admin', 'manager') %}
+
+{# ── Divider ─────────────────────────────────────────────────────────── #}
+<div style="display:flex;align-items:center;gap:12px;margin:32px 0 20px">
+  <div style="flex:1;height:1px;background:var(--gray-200)"></div>
+  <span style="font-size:12px;font-weight:700;text-transform:uppercase;
+               letter-spacing:.1em;color:var(--gray-400);white-space:nowrap">
+    Manager View
+  </span>
+  <div style="flex:1;height:1px;background:var(--gray-200)"></div>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════════
+   SECTION A — TASK DISTRIBUTION CARDS
+   ══════════════════════════════════════════════════════════════════════ #}
+{% if task_distribution %}
+<div class="stats-grid" style="margin-bottom:24px">
+
+  <div class="stat-card" style="border-left-color:var(--gray-400)">
+    <div class="stat-value">{{ task_distribution.total }}</div>
+    <div class="stat-label">Total Tasks (org)</div>
+  </div>
+
+  <div class="stat-card green">
+    <div class="stat-value">{{ task_distribution.completed }}</div>
+    <div class="stat-label">Completed</div>
+    <div class="text-sm text-muted" style="margin-top:4px">
+      {% if task_distribution.total > 0 %}
+        {{ (task_distribution.completed / task_distribution.total * 100)|int }}% done
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stat-card yellow">
+    <div class="stat-value">{{ task_distribution.pending }}</div>
+    <div class="stat-label">Pending</div>
+  </div>
+
+  <div class="stat-card" style="border-left-color:var(--primary)">
+    <div class="stat-value">{{ task_distribution.in_progress }}</div>
+    <div class="stat-label">In Progress</div>
+  </div>
+
+  {% if task_distribution.overdue > 0 %}
+  <div class="stat-card red">
+    <div class="stat-value">{{ task_distribution.overdue }}</div>
+    <div class="stat-label">Overdue</div>
+  </div>
+  {% endif %}
+
+</div>
+
+{# ── Overall completion progress bar ──────────────────────────────── #}
+{% if task_distribution.total > 0 %}
+<div style="margin-bottom:24px;padding:16px 20px;background:#fff;
+            border-radius:var(--radius);box-shadow:var(--shadow)">
+  <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+    <span style="font-size:13px;font-weight:600;color:var(--gray-700)">📊 Org-Wide Task Completion</span>
+    <span class="text-sm text-muted">
+      {{ task_distribution.completed }} / {{ task_distribution.total }}
+    </span>
+  </div>
+  <div style="background:var(--gray-100);border-radius:99px;height:8px;overflow:hidden">
+    <div style="background:var(--success);border-radius:99px;height:8px;
+                width:{{ [(task_distribution.completed / task_distribution.total * 100)|int, 100]|min }}%;
+                transition:width .4s ease"></div>
+  </div>
+  {% if task_distribution.overdue > 0 %}
+  <p class="text-sm text-muted" style="margin-top:8px;color:var(--danger)!important">
+    ⚠️ {{ task_distribution.overdue }} overdue task{{ 's' if task_distribution.overdue != 1 else '' }} need attention
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endif %}{# end task_distribution #}
+
+
+{# ══════════════════════════════════════════════════════════════════════
+   SECTION B — TOP PERFORMERS (top 3)
+   ══════════════════════════════════════════════════════════════════════ #}
+{% if team_performance %}
+{% set top3 = team_performance[:3] %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>🏆 Top Performers — This Week</h2>
+    <span class="badge badge-blue">Top {{ top3|length }}</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px">
+
+      {% for emp in top3 %}
+      {% set medal = ['🥇','🥈','🥉'][loop.index0] %}
+      <div style="position:relative;padding:20px 16px;border-radius:var(--radius);
+                  text-align:center;border:2px solid
+                  {% if loop.index == 1 %}#f59e0b{% elif loop.index == 2 %}#9ca3af{% else %}#b45309{% endif %};
+                  background:
+                  {% if loop.index == 1 %}#fffbeb{% elif loop.index == 2 %}var(--gray-50){% else %}#fff7ed{% endif %}">
+        <div style="font-size:30px;margin-bottom:6px">{{ medal }}</div>
+        <div style="font-weight:700;font-size:14px;color:var(--gray-800);margin-bottom:2px">{{ emp.name }}</div>
+        <div class="text-sm text-muted" style="margin-bottom:10px">{{ emp.department }}</div>
+
+        {# Score ring #}
+        <div style="display:inline-flex;align-items:center;justify-content:center;
+                    width:56px;height:56px;border-radius:50%;
+                    border:3px solid
+                    {% if emp.performance_score >= 75 %}var(--success)
+                    {% elif emp.performance_score >= 50 %}var(--warning)
+                    {% else %}var(--danger){% endif %};
+                    font-size:16px;font-weight:700;
+                    color:{% if emp.performance_score >= 75 %}var(--success)
+                    {% elif emp.performance_score >= 50 %}var(--warning)
+                    {% else %}var(--danger){% endif %}">
+          {{ emp.performance_score }}
+        </div>
+        <div class="text-sm text-muted" style="margin-top:4px">Score</div>
+
+        <div style="display:flex;justify-content:space-around;margin-top:12px;
+                    padding-top:12px;border-top:1px solid var(--gray-200)">
+          <div>
+            <div style="font-size:13px;font-weight:600">{{ emp.week_hours }}h</div>
+            <div class="text-sm text-muted">Hours</div>
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:600">{{ emp.task_completion_rate }}%</div>
+            <div class="text-sm text-muted">Tasks</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+</div>
+{% endif %}{# end team_performance #}
+
+
+{# ══════════════════════════════════════════════════════════════════════
+   SECTION C — LOW PERFORMERS (warning panel)
+   ══════════════════════════════════════════════════════════════════════ #}
+{% if low_performers %}
+<div class="card" style="margin-bottom:20px;border-left:4px solid var(--danger)">
+  <div class="card-header">
+    <h2>⚠️ Needs Attention</h2>
+    <span class="badge badge-red">{{ low_performers|length }} employee{{ 's' if low_performers|length != 1 else '' }}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Department</th>
+          <th>Hours (week)</th>
+          <th>Task Rate</th>
+          <th>Score</th>
+          <th>Flags</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in low_performers %}
+        <tr style="background:{% if emp.performance_score < 30 %}var(--danger-light){% else %}var(--warning-light){% endif %}">
+          <td style="font-weight:600">{{ emp.name }}</td>
+          <td>{{ emp.department }}</td>
+          <td>
+            <span style="color:{% if emp.low_hours %}var(--danger){% else %}var(--gray-800){% endif %};font-weight:{% if emp.low_hours %}600{% else %}400{% endif %}">
+              {{ emp.week_hours }}h
+            </span>
+          </td>
+          <td>
+            <span style="color:{% if emp.low_tasks %}var(--danger){% else %}var(--gray-800){% endif %};font-weight:{% if emp.low_tasks %}600{% else %}400{% endif %}">
+              {{ emp.task_completion_rate }}%
+            </span>
+            <span class="text-sm text-muted"> ({{ emp.completed_tasks }}/{{ emp.total_tasks }})</span>
+          </td>
+          <td>
+            <span class="badge {% if emp.performance_score < 30 %}badge-red{% else %}badge-yellow{% endif %}">
+              {{ emp.performance_score }}
+            </span>
+          </td>
+          <td style="font-size:13px">
+            {% if emp.low_hours %}<span style="color:var(--danger)">⏱ Low hours</span>{% endif %}
+            {% if emp.low_hours and emp.low_tasks %} · {% endif %}
+            {% if emp.low_tasks %}<span style="color:var(--danger)">📋 Low tasks</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}{# end low_performers #}
+
+
+{# ══════════════════════════════════════════════════════════════════════
+   SECTION D — FULL TEAM PERFORMANCE TABLE
+   ══════════════════════════════════════════════════════════════════════ #}
+{% if team_performance %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>👥 Team Performance — This Week</h2>
+    <span class="text-sm text-muted">{{ team_performance|length }} employee{{ 's' if team_performance|length != 1 else '' }}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Department</th>
+          <th>Hours (week)</th>
+          <th>Tasks Done</th>
+          <th>Completion</th>
+          <th>Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in team_performance %}
+        <tr>
+          <td class="text-muted">{{ loop.index }}</td>
+          <td style="font-weight:600">{{ emp.name }}</td>
+          <td>{{ emp.department }}</td>
+          <td>{{ emp.week_hours }}h</td>
+          <td>{{ emp.completed_tasks }} / {{ emp.total_tasks }}</td>
+          <td>
+            {# Mini progress bar #}
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;background:var(--gray-100);border-radius:99px;height:6px;min-width:60px">
+                <div style="background:
+                    {% if emp.task_completion_rate >= 75 %}var(--success)
+                    {% elif emp.task_completion_rate >= 40 %}var(--warning)
+                    {% else %}var(--danger){% endif %};
+                    border-radius:99px;height:6px;
+                    width:{{ [emp.task_completion_rate, 100]|min }}%"></div>
+              </div>
+              <span style="font-size:12px;white-space:nowrap;color:var(--gray-600)">
+                {{ emp.task_completion_rate }}%
+              </span>
+            </div>
+          </td>
+          <td>
+            <span class="badge
+              {% if emp.performance_score >= 75 %}badge-green
+              {% elif emp.performance_score >= 50 %}badge-yellow
+              {% else %}badge-red{% endif %}">
+              {{ emp.performance_score }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}{# end team_performance full table #}
+
+{% endif %}{# end manager/admin guard #}
+
+{% endblock %}

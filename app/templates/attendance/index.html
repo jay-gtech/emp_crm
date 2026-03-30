@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Attendance — Employee CRM{% endblock %}
+{% block page_title %}Attendance{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<!-- Action bar -->
+<div class="card" style="margin-bottom:20px">
+  <div class="action-bar">
+    {% if not today or not today.clock_in_time %}
+      <form method="post" action="/attendance/clock-in">
+        <select name="work_mode" class="form-control" style="width:auto;display:inline-block;margin-right:6px">
+          <option value="office">Office</option>
+          <option value="remote">Remote</option>
+        </select>
+        <button class="btn btn-success">🟢 Clock In</button>
+      </form>
+    {% elif not today.clock_out_time %}
+      <form method="post" action="/attendance/clock-out">
+        <button class="btn btn-danger">🔴 Clock Out</button>
+      </form>
+      {% if not active_break %}
+        <form method="post" action="/attendance/break/start">
+          <button class="btn btn-warning">☕ Start Break</button>
+        </form>
+      {% else %}
+        <form method="post" action="/attendance/break/end">
+          <button class="btn btn-primary">▶ End Break</button>
+        </form>
+      {% endif %}
+    {% else %}
+      <span style="color:var(--gray-400);font-size:13px">✓ Work day completed — clocked out at {{ today.clock_out_time.strftime('%H:%M') }}</span>
+    {% endif %}
+  </div>
+
+  <!-- Today's summary -->
+  <div class="card-body" style="padding:16px 20px">
+    <div style="display:flex;gap:32px;flex-wrap:wrap">
+      <div>
+        <div class="text-muted text-sm">Clock In</div>
+        <strong>{{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}</strong>
+      </div>
+      <div>
+        <div class="text-muted text-sm">Clock Out</div>
+        <strong>{{ today.clock_out_time.strftime('%H:%M') if today and today.clock_out_time else '—' }}</strong>
+      </div>
+      <div>
+        <div class="text-muted text-sm">Total Hours</div>
+        <strong>{{ today.total_hours if today and today.total_hours else '—' }}</strong>
+      </div>
+      <div>
+        <div class="text-muted text-sm">Break Time</div>
+        <strong>{{ "%.0f"|format((today.total_break_hours or 0) * 60) }} min</strong>
+      </div>
+      <div>
+        <div class="text-muted text-sm">Work Mode</div>
+        <strong>{{ today.work_mode.value if today else '—' }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Breaks today -->
+{% if breaks %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header"><h2>☕ Today's Breaks</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Start</th><th>End</th><th>Duration</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for b in breaks %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ b.start_time.strftime('%H:%M') }}</td>
+          <td>{{ b.end_time.strftime('%H:%M') if b.end_time else '—' }}</td>
+          <td>{{ b.duration_minutes or '—' }} min</td>
+          <td>
+            {% if b.status.value == 'active' %}
+              <span class="badge badge-yellow">Active</span>
+            {% else %}
+              <span class="badge badge-green">Done</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Attendance history -->
+<div class="card">
+  <div class="card-header"><h2>📋 Attendance History (Last 30 Days)</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Total Hours</th><th>Break</th><th>Mode</th></tr>
+      </thead>
+      <tbody>
+        {% for rec in history %}
+        <tr>
+          <td>{{ rec.date }}</td>
+          <td>{{ rec.clock_in_time.strftime('%H:%M') if rec.clock_in_time else '—' }}</td>
+          <td>{{ rec.clock_out_time.strftime('%H:%M') if rec.clock_out_time else '—' }}</td>
+          <td>
+            {% if rec.total_hours %}
+              <span class="badge badge-green">{{ rec.total_hours }}h</span>
+            {% elif rec.clock_in_time and not rec.clock_out_time %}
+              <span class="badge badge-yellow">In Progress</span>
+            {% else %}—
+            {% endif %}
+          </td>
+          <td>{{ "%.0f"|format((rec.total_break_hours or 0) * 60) }} min</td>
+          <td><span class="badge badge-gray">{{ rec.work_mode.value }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:24px">No attendance records yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
