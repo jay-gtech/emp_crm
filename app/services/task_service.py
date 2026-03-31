@@ -1,7 +1,10 @@
 from datetime import date
 from sqlalchemy.orm import Session
 from app.models.task import Task, TaskStatus, TaskPriority
-
+try:
+    from app.services.hierarchy_service import apply_hierarchy_filter
+except ImportError:
+    apply_hierarchy_filter = None
 
 class TaskError(Exception):
     pass
@@ -61,8 +64,11 @@ def list_tasks_assigned_by(db: Session, manager_id: int) -> list[Task]:
     )
 
 
-def list_all_tasks(db: Session) -> list[Task]:
-    return db.query(Task).order_by(Task.created_at.desc()).all()
+def list_all_tasks(db: Session, request_user: dict | None = None) -> list[Task]:
+    tasks = db.query(Task).order_by(Task.created_at.desc()).all()
+    if request_user and apply_hierarchy_filter:
+        tasks = apply_hierarchy_filter(db, request_user, tasks)
+    return tasks
 
 
 def update_task_status(db: Session, task_id: int, status: str, requester_id: int) -> Task:

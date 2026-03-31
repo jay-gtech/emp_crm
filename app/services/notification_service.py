@@ -7,47 +7,148 @@ the caller or the rest of the request pipeline.
 """
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.orm import Session
 
-from app.models.notification import Notification, NotificationType
+from app.models.notification import Notification
+
+logger = logging.getLogger(__name__)
+
+# Lazy guard — email_service import failure must never break notifications.
+try:
+    from app.services import email_service as _email_svc
+    _EMAIL_SVC_OK = True
+except Exception:
+    _EMAIL_SVC_OK = False
 
 
 # ---------------------------------------------------------------------------
 # 1.  Create a notification
 # ---------------------------------------------------------------------------
 
-def create_notification(
-    db: Session,
-    user_id: int,
-    message: str,
-    notif_type: str = "info",
-) -> Notification | None:
+def create_notification_from_audit(db: Session, audit_log) -> Notification | None:
     """
-    Persist a notification for *user_id*.
-    Returns the saved Notification or None on failure.
+    Parses an AuditLog event, determines hierarchical target recipients,
+    and bulk creates Notifications if applicable.
     """
     try:
-        try:
-            ntype = NotificationType(notif_type)
-        except ValueError:
-            ntype = NotificationType.info
+        from app.models.task import Task
+        from app.models.leave import Leave
+        from app.models.user import User
 
-        notif = Notification(
-            user_id=user_id,
-            message=message,
-            type=ntype,
-            is_read=False,
-        )
-        db.add(notif)
+        user_ids_to_notify = []
+        message = ""
+
+        # 1. Task Assigned
+        if audit_log.action.value == "task_created" and audit_log.target_type == "task":
+            task = db.query(Task).filter(Task.id == audit_log.target_id).first()
+            if task and task.assigned_to and task.assigned_to != audit_log.actor_id:
+                user_ids_to_notify.append(task.assigned_to)
+                message = f'You have a new task: "{task.title}"'
+
+        # 2. Leave Applied
+        elif audit_log.action.value == "leave_applied" and audit_log.target_type == "leave":
+            leave = db.query(Leave).filter(Leave.id == audit_log.target_id).first()
+            if leave:
+                employee = db.query(User).filter(User.id == leave.employee_id).first()
+                if employee:
+                    target_manager = employee.team_lead_id or employee.manager_id
+                    if target_manager:
+                        user_ids_to_notify.append(target_manager)
+                    message = f'{employee.name} applied for {leave.total_days} day(s) of {leave.leave_type.value} leave.'
+
+        # 3. Leave Reviewed
+        elif audit_log.action.value in ("leave_approved", "leave_rejected") and audit_log.target_type == "leave":
+            leave = db.query(Leave).filter(Leave.id == audit_log.target_id).first()
+            if leave and leave.employee_id != audit_log.actor_id:
+                user_ids_to_notify.append(leave.employee_id)
+                verb = "approved" if audit_log.action.value == "leave_approved" else "rejected"
+                message = f'Your {leave.leave_type.value} leave for {leave.total_days} day(s) was {verb}.'
+
+        if not user_ids_to_notify:
+            return None
+
+        # ── Build notification records ───────────────────────────────────────
+        # Also collect (user_id → email) for the email delivery step below.
+        from app.models.user import User  # local import avoids circular deps
+
+        saved_notif = None
+        uid_to_email: dict[int, str] = {}
+
+        for uid in set(user_ids_to_notify):
+            notif = Notification(
+                user_id=uid,
+                audit_log_id=audit_log.id,
+                message=message,
+                is_read=False,
+            )
+            db.add(notif)
+            saved_notif = notif
+
+            # Grab the recipient's email address while we have the session open.
+            try:
+                user = db.query(User).filter(User.id == uid).first()
+                if user and user.email:
+                    uid_to_email[uid] = user.email
+            except Exception:
+                pass  # email delivery is best-effort; skip if lookup fails
+
         db.commit()
-        db.refresh(notif)
-        return notif
+        if saved_notif:
+            db.refresh(saved_notif)
+
+        # ── Email delivery — entirely decoupled from the DB transaction ──────
+        # Any failure here is logged + swallowed; it NEVER affects the return
+        # value or the notifications already persisted above.
+        if _EMAIL_SVC_OK and uid_to_email and message:
+            subject = _build_email_subject(audit_log)
+            for uid, to_email in uid_to_email.items():
+                try:
+                    _email_svc.send_email(
+                        to_email=to_email,
+                        subject=subject,
+                        body=message,
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.error(
+                        "Email delivery failed for user_id=%s (%s): %s",
+                        uid, to_email, exc,
+                    )
+
+        return saved_notif
+
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
         return None
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+_ACTION_SUBJECTS: dict[str, str] = {
+    "task_created":   "📋 New Task Assigned — Employee CRM",
+    "leave_applied":  "📥 Leave Application Received — Employee CRM",
+    "leave_approved": "✅ Your Leave Has Been Approved — Employee CRM",
+    "leave_rejected": "❌ Your Leave Application Was Rejected — Employee CRM",
+}
+
+
+def _build_email_subject(audit_log) -> str:
+    """Map an audit action to a human-readable email subject line."""
+    try:
+        action_value = (
+            audit_log.action.value
+            if hasattr(audit_log.action, "value")
+            else str(audit_log.action)
+        )
+        return _ACTION_SUBJECTS.get(action_value, "🔔 Notification — Employee CRM")
+    except Exception:
+        return "🔔 Notification — Employee CRM"
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +176,7 @@ def get_notifications(
             {
                 "id": n.id,
                 "message": n.message,
-                "type": n.type.value,
+                "type": "info", # Hardcoded gracefully for UI compatibility
                 "is_read": n.is_read,
                 "created_at": n.created_at.strftime("%d %b %Y, %H:%M") if n.created_at else "",
             }

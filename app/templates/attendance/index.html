@@ -41,7 +41,15 @@
     <div style="display:flex;gap:32px;flex-wrap:wrap">
       <div>
         <div class="text-muted text-sm">Clock In</div>
-        <strong>{{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}</strong>
+        <strong>
+          {{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}
+          {% if today and today.clock_in_time %}
+            {% set ci = today.clock_in_time %}
+            {% if ci.hour > late_hour or (ci.hour == late_hour and ci.minute > late_minute) %}
+              <span class="badge badge-red" style="font-size:10px;margin-left:4px">Late</span>
+            {% endif %}
+          {% endif %}
+        </strong>
       </div>
       <div>
         <div class="text-muted text-sm">Clock Out</div>
@@ -94,15 +102,31 @@
 
 <!-- Attendance history -->
 <div class="card">
-  <div class="card-header"><h2>📋 Attendance History (Last 30 Days)</h2></div>
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">📋 Attendance History</h2>
+    <form method="get" action="/attendance/" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label class="text-sm text-muted" style="margin:0">From</label>
+      <input type="date" name="date_from" class="form-control" style="width:150px"
+             value="{{ date_from }}" />
+      <label class="text-sm text-muted" style="margin:0">To</label>
+      <input type="date" name="date_to" class="form-control" style="width:150px"
+             value="{{ date_to }}" />
+      <button type="submit" class="btn btn-outline btn-sm">Filter</button>
+      {% if date_from or date_to %}
+      <a href="/attendance/" class="btn btn-outline btn-sm">Clear</a>
+      {% endif %}
+      <a href="/api/attendance/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+    </form>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Total Hours</th><th>Break</th><th>Mode</th></tr>
+        <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Total Hours</th><th>Break</th><th>Mode</th><th>Flag</th></tr>
       </thead>
       <tbody>
         {% for rec in history %}
-        <tr>
+        {% set is_late = rec.clock_in_time and (rec.clock_in_time.hour > late_hour or (rec.clock_in_time.hour == late_hour and rec.clock_in_time.minute > late_minute)) %}
+        <tr {% if is_late %}style="background:var(--warning-light)"{% endif %}>
           <td>{{ rec.date }}</td>
           <td>{{ rec.clock_in_time.strftime('%H:%M') if rec.clock_in_time else '—' }}</td>
           <td>{{ rec.clock_out_time.strftime('%H:%M') if rec.clock_out_time else '—' }}</td>
@@ -116,9 +140,16 @@
           </td>
           <td>{{ "%.0f"|format((rec.total_break_hours or 0) * 60) }} min</td>
           <td><span class="badge badge-gray">{{ rec.work_mode.value }}</span></td>
+          <td>
+            {% if is_late %}
+              <span class="badge badge-red">Late</span>
+            {% else %}
+              <span class="badge badge-green">On Time</span>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" style="text-align:center;color:var(--gray-400);padding:24px">No attendance records yet.</td></tr>
+        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:24px">No attendance records found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

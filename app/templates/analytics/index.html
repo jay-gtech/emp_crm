@@ -1,0 +1,585 @@
+{% extends "base.html" %}
+{% block title %}Analytics — Employee CRM{% endblock %}
+{% block page_title %}📈 Analytics Dashboard{% endblock %}
+
+{% block content %}
+<style>
+  /* ── CSS custom properties (scoped to this page) ── */
+  :root {
+    --an-blue:    #2563eb;
+    --an-indigo:  #4f46e5;
+    --an-green:   #16a34a;
+    --an-amber:   #d97706;
+    --an-rose:    #e11d48;
+    --an-teal:    #0d9488;
+    --an-purple:  #7c3aed;
+    --card-radius: 14px;
+    --card-shadow: 0 2px 12px rgba(0,0,0,.07);
+  }
+
+  /* ── page layout ── */
+  .an-page { display: flex; flex-direction: column; gap: 28px; padding: 4px 0 40px; }
+
+  /* ── skeleton loader ── */
+  .an-skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e8ff 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: an-shimmer 1.4s infinite;
+    border-radius: 8px;
+  }
+  @keyframes an-shimmer { to { background-position: -200% 0; } }
+
+  /* ── KPI cards ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+  }
+  .kpi-card {
+    background: #fff;
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .18s, box-shadow .18s;
+  }
+  .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(0,0,0,.11); }
+  .kpi-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  }
+  .kpi-card.blue::before   { background: var(--an-blue); }
+  .kpi-card.green::before  { background: var(--an-green); }
+  .kpi-card.amber::before  { background: var(--an-amber); }
+  .kpi-card.rose::before   { background: var(--an-rose); }
+  .kpi-card.indigo::before { background: var(--an-indigo); }
+  .kpi-card.teal::before   { background: var(--an-teal); }
+  .kpi-icon { font-size: 26px; line-height: 1; }
+  .kpi-value {
+    font-size: 32px; font-weight: 800; line-height: 1;
+    color: var(--gray-900);
+    letter-spacing: -1px;
+  }
+  .kpi-label { font-size: 12px; color: var(--gray-500); font-weight: 500; text-transform: uppercase; letter-spacing: .5px; }
+  .kpi-sub { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
+
+  /* ── section headers ── */
+  .an-section-title {
+    font-size: 15px; font-weight: 700; color: var(--gray-800);
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 16px;
+  }
+  .an-section-title .badge {
+    font-size: 10px; padding: 2px 8px;
+    border-radius: 99px; font-weight: 600;
+    background: var(--primary-light); color: var(--primary);
+  }
+
+  /* ── chart cards ── */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 20px;
+  }
+  .chart-card {
+    background: #fff;
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .chart-card-title {
+    font-size: 13px; font-weight: 700; color: var(--gray-700);
+    margin-bottom: 18px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* ── performance card (my stats) ── */
+  .perf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 14px;
+  }
+  .perf-item {
+    background: var(--gray-50);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .perf-value { font-size: 24px; font-weight: 800; color: var(--an-indigo); }
+  .perf-label { font-size: 11px; color: var(--gray-500); font-weight: 500; }
+
+  /* ── donut ring legend ── */
+  .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--gray-600); margin-top: 6px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── team table ── */
+  .team-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .team-table th {
+    text-align: left; padding: 8px 12px;
+    background: var(--gray-50); color: var(--gray-500);
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .team-table td { padding: 10px 12px; border-bottom: 1px solid var(--gray-50); vertical-align: middle; }
+  .team-table tr:last-child td { border-bottom: none; }
+  .team-table tr:hover td { background: var(--gray-50); }
+  .progress-bar-wrap { background: var(--gray-100); border-radius: 99px; height: 6px; width: 120px; }
+  .progress-bar-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--an-blue), var(--an-indigo)); transition: width .6s; }
+  .role-pill {
+    font-size: 10px; font-weight: 600; padding: 2px 8px;
+    border-radius: 99px; text-transform: capitalize;
+  }
+  .role-pill.admin    { background: #fef3c7; color: #92400e; }
+  .role-pill.manager  { background: #dbeafe; color: #1e40af; }
+  .role-pill.team_lead{ background: #ede9fe; color: #5b21b6; }
+  .role-pill.employee { background: #d1fae5; color: #065f46; }
+
+  /* ── alert banner if analytics fails ── */
+  .an-error {
+    background: #fff7ed; border: 1px solid #fed7aa;
+    color: #92400e; padding: 12px 18px; border-radius: 10px;
+    font-size: 13px; display: none;
+  }
+  .an-error.visible { display: block; }
+
+  /* ── last-updated chip ── */
+  .an-updated-chip {
+    font-size: 11px; color: var(--gray-400);
+    display: flex; align-items: center; gap: 4px;
+    margin-left: auto;
+  }
+
+  @media (max-width: 700px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .kpi-grid   { grid-template-columns: repeat(2, 1fr); }
+    .progress-bar-wrap { width: 70px; }
+  }
+</style>
+
+<!-- Chart.js from CDN (no install needed) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+<div class="an-page" id="anPage">
+
+  <!-- ── Error banner ── -->
+  <div class="an-error" id="anError">
+    ⚠️ Analytics data could not be loaded. Core system functionality is unaffected.
+  </div>
+
+  <!-- ── KPI cards (skeleton until data arrives) ── -->
+  <section>
+    <div class="an-section-title">
+      📊 Organisation Overview
+      <span class="badge">Live</span>
+      <span class="an-updated-chip" id="anUpdatedAt"></span>
+    </div>
+    <div class="kpi-grid" id="kpiGrid">
+      <!-- 6 skeleton placeholders -->
+      {% for _ in range(6) %}
+      <div class="kpi-card" style="min-height:100px;">
+        <div class="an-skeleton" style="width:36px;height:36px;border-radius:8px;"></div>
+        <div class="an-skeleton" style="width:70%;height:28px;margin-top:8px;"></div>
+        <div class="an-skeleton" style="width:50%;height:14px;"></div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ── My Performance cards ── -->
+  <section>
+    <div class="an-section-title">🧑‍💼 My Performance <span class="badge">This month</span></div>
+    <div class="chart-card">
+      <div class="perf-grid" id="perfGrid">
+        <div class="an-skeleton" style="height:80px;"></div>
+        <div class="an-skeleton" style="height:80px;"></div>
+        <div class="an-skeleton" style="height:80px;"></div>
+        <div class="an-skeleton" style="height:80px;"></div>
+        <div class="an-skeleton" style="height:80px;"></div>
+        <div class="an-skeleton" style="height:80px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Trend charts ── -->
+  <section>
+    <div class="an-section-title">📈 Trends (last 30 days / 8 weeks / 6 months)</div>
+    <div class="chart-grid">
+
+      <!-- Attendance line chart -->
+      <div class="chart-card">
+        <div class="chart-card-title">🕐 Daily Attendance — Office vs Remote</div>
+        <div class="chart-wrap" style="height:220px;">
+          <canvas id="chartAttendance"></canvas>
+        </div>
+      </div>
+
+      <!-- Task bar chart -->
+      <div class="chart-card">
+        <div class="chart-card-title">✅ Weekly Task Trends — Created vs Completed</div>
+        <div class="chart-wrap" style="height:220px;">
+          <canvas id="chartTasks"></canvas>
+        </div>
+      </div>
+
+      <!-- Leave bar chart -->
+      <div class="chart-card">
+        <div class="chart-card-title">📅 Monthly Leave Days by Type</div>
+        <div class="chart-wrap" style="height:220px;">
+          <canvas id="chartLeave"></canvas>
+        </div>
+      </div>
+
+      <!-- Task status donut -->
+      <div class="chart-card">
+        <div class="chart-card-title">🎯 Task Completion Rate</div>
+        <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap;">
+          <div class="chart-wrap" style="height:200px;width:200px;flex-shrink:0;">
+            <canvas id="chartDonut"></canvas>
+          </div>
+          <div id="donutLegend"></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Team comparison table (managers/admins only) ── -->
+  <section id="teamSection" style="display:none;">
+    <div class="an-section-title">👥 Team Comparison <span class="badge">All employees</span></div>
+    <div class="chart-card" style="padding:0;overflow:hidden;">
+      <table class="team-table" id="teamTable">
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Role</th>
+            <th>Task Completion</th>
+            <th>Days Present</th>
+            <th>Leave Taken</th>
+          </tr>
+        </thead>
+        <tbody id="teamBody">
+          <tr><td colspan="5" style="padding:24px;text-align:center;color:var(--gray-400)">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div><!-- /an-page -->
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Chart.js global defaults ────────────────────────────────────── */
+  Chart.defaults.font.family = "'Inter', 'Segoe UI', sans-serif";
+  Chart.defaults.font.size   = 11;
+  Chart.defaults.color       = '#6b7280';
+  Chart.defaults.plugins.legend.display = false;
+
+  const COLORS = {
+    blue:   '#2563eb',
+    indigo: '#4f46e5',
+    green:  '#16a34a',
+    amber:  '#d97706',
+    rose:   '#e11d48',
+    teal:   '#0d9488',
+    purple: '#7c3aed',
+    blueA:  'rgba(37,99,235,.12)',
+    indigoA:'rgba(79,70,229,.12)',
+    greenA: 'rgba(22,163,74,.12)',
+    amberA: 'rgba(217,119,6,.15)',
+  };
+
+  /* ── Shared chart options ────────────────────────────────────────── */
+  function lineOpts(extras) {
+    return Object.assign({
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { tooltip: { cornerRadius: 8 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8, maxRotation: 0 } },
+        y: { beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { precision: 0 } },
+      },
+    }, extras || {});
+  }
+
+  function barOpts(extras) {
+    return Object.assign({
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { tooltip: { cornerRadius: 8 } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { precision: 0 } },
+      },
+    }, extras || {});
+  }
+
+  /* ── Attendance line chart ───────────────────────────────────────── */
+  let chartAtt = null;
+  function renderAttendance(d) {
+    const ctx = document.getElementById('chartAttendance');
+    if (!ctx) return;
+    if (chartAtt) chartAtt.destroy();
+    chartAtt = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: d.labels || [],
+        datasets: [
+          {
+            label: 'Office',
+            data: d.present || [],
+            borderColor: COLORS.blue,
+            backgroundColor: COLORS.blueA,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 2,
+          },
+          {
+            label: 'Remote',
+            data: d.remote || [],
+            borderColor: COLORS.teal,
+            backgroundColor: 'rgba(13,148,136,.10)',
+            fill: true,
+            tension: 0.35,
+            pointRadius: 2,
+          },
+        ],
+      },
+      options: lineOpts({ plugins: { legend: { display: true }, tooltip: { cornerRadius: 8 } } }),
+    });
+  }
+
+  /* ── Task bar chart ──────────────────────────────────────────────── */
+  let chartTask = null;
+  function renderTasks(d) {
+    const ctx = document.getElementById('chartTasks');
+    if (!ctx) return;
+    if (chartTask) chartTask.destroy();
+    chartTask = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: d.labels || [],
+        datasets: [
+          {
+            label: 'Created',
+            data: d.created || [],
+            backgroundColor: COLORS.indigo,
+            borderRadius: 5,
+          },
+          {
+            label: 'Completed',
+            data: d.completed || [],
+            backgroundColor: COLORS.green,
+            borderRadius: 5,
+          },
+        ],
+      },
+      options: barOpts({ plugins: { legend: { display: true }, tooltip: { cornerRadius: 8 } } }),
+    });
+  }
+
+  /* ── Leave stacked bar chart ─────────────────────────────────────── */
+  let chartLeave = null;
+  function renderLeave(d) {
+    const ctx = document.getElementById('chartLeave');
+    if (!ctx) return;
+    if (chartLeave) chartLeave.destroy();
+    const bt = d.by_type || {};
+    chartLeave = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: d.labels || [],
+        datasets: [
+          { label: 'Casual',  data: bt.casual  || [], backgroundColor: COLORS.blue,   borderRadius: 4 },
+          { label: 'Sick',    data: bt.sick     || [], backgroundColor: COLORS.rose,   borderRadius: 4 },
+          { label: 'Annual',  data: bt.annual   || [], backgroundColor: COLORS.green,  borderRadius: 4 },
+          { label: 'Unpaid',  data: bt.unpaid   || [], backgroundColor: COLORS.amber,  borderRadius: 4 },
+        ],
+      },
+      options: barOpts({
+        plugins: { legend: { display: true }, tooltip: { cornerRadius: 8 } },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, beginAtZero: true, grid: { color: '#f3f4f6' }, ticks: { precision: 0 } },
+        },
+      }),
+    });
+  }
+
+  /* ── Donut chart (task status breakdown) ─────────────────────────── */
+  let chartDo = null;
+  function renderDonut(kpis, perf) {
+    const ctx = document.getElementById('chartDonut');
+    if (!ctx) return;
+    if (chartDo) chartDo.destroy();
+
+    const completed  = perf.tasks_completed  || 0;
+    const inprogress = (perf.tasks_total || 0) - (perf.tasks_completed || 0) - (perf.tasks_overdue || 0);
+    const overdue    = perf.tasks_overdue    || 0;
+
+    const data   = [completed, Math.max(inprogress, 0), overdue];
+    const labels = ['Completed', 'In Progress', 'Overdue'];
+    const colors = [COLORS.green, COLORS.blue, COLORS.rose];
+
+    chartDo = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data, backgroundColor: colors, borderWidth: 2, hoverOffset: 6 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '68%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { cornerRadius: 8 },
+        },
+      },
+    });
+
+    /* custom legend */
+    const leg = document.getElementById('donutLegend');
+    if (leg) {
+      leg.innerHTML = labels.map((l, i) => `
+        <div class="legend-row">
+          <span class="legend-dot" style="background:${colors[i]}"></span>
+          <span>${l}</span>
+          <strong style="margin-left:auto;color:#374151">${data[i]}</strong>
+        </div>
+      `).join('');
+    }
+  }
+
+  /* ── KPI cards ───────────────────────────────────────────────────── */
+  function renderKPIs(k) {
+    const grid = document.getElementById('kpiGrid');
+    if (!grid) return;
+    const cards = [
+      { icon:'👥', value: k.total_employees    || 0, label:'Total Employees',     sub:'Active',            cls:'blue' },
+      { icon:'🕐', value: k.present_today      || 0, label:'Present Today',       sub:(k.attendance_rate||0)+'% rate', cls:'green' },
+      { icon:'✅', value: k.open_tasks         || 0, label:'Open Tasks',          sub:'Not yet completed', cls:'amber' },
+      { icon:'📅', value: k.pending_leaves     || 0, label:'Pending Leaves',      sub:'Awaiting review',   cls:'rose' },
+      { icon:'📊', value:(k.avg_task_completion||0)+'%', label:'Avg Task Completion', sub:'Organisation-wide', cls:'indigo' },
+      { icon:'📈', value:(k.attendance_rate   ||0)+'%', label:'Attendance Rate',     sub:'Today',             cls:'teal' },
+    ];
+    grid.innerHTML = cards.map(c => `
+      <div class="kpi-card ${c.cls}">
+        <div class="kpi-icon">${c.icon}</div>
+        <div class="kpi-value">${c.value}</div>
+        <div class="kpi-label">${c.label}</div>
+        <div class="kpi-sub">${c.sub}</div>
+      </div>
+    `).join('');
+  }
+
+  /* ── My Performance ──────────────────────────────────────────────── */
+  function renderPerf(p) {
+    const grid = document.getElementById('perfGrid');
+    if (!grid) return;
+    const items = [
+      { value: (p.task_completion_rate||0)+'%', label:'Task Completion' },
+      { value: p.tasks_total     || 0, label:'Total Tasks' },
+      { value: p.tasks_completed || 0, label:'Completed' },
+      { value: p.tasks_overdue  || 0, label:'Overdue' },
+      { value: p.attendance_days || 0, label:'Days Present (month)' },
+      { value: (p.avg_hours||0)+'h',  label:'Avg Hours/Day' },
+    ];
+    grid.innerHTML = items.map(i => `
+      <div class="perf-item">
+        <div class="perf-value">${i.value}</div>
+        <div class="perf-label">${i.label}</div>
+      </div>
+    `).join('');
+  }
+
+  /* ── Team comparison table ───────────────────────────────────────── */
+  function renderTeam(rows) {
+    const section = document.getElementById('teamSection');
+    const tbody   = document.getElementById('teamBody');
+    if (!section || !tbody) return;
+
+    if (!rows || rows.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+
+    tbody.innerHTML = rows.map(r => {
+      const pct   = Math.min(r.task_completion_rate || 0, 100);
+      const role  = (r.role || 'employee').replace('_', ' ');
+      const cls   = (r.role || 'employee').replace(' ', '_');
+      return `
+        <tr>
+          <td style="font-weight:600;color:var(--gray-800)">${escHtml(r.name)}</td>
+          <td><span class="role-pill ${cls}">${role}</span></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" style="width:${pct}%"></div>
+              </div>
+              <span style="font-size:12px;color:var(--gray-600);min-width:34px">${pct}%</span>
+            </div>
+          </td>
+          <td>${r.attendance_days || 0}</td>
+          <td>${r.leave_days || 0}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  /* ── Utilities ───────────────────────────────────────────────────── */
+  function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = String(s || '');
+    return d.innerHTML;
+  }
+
+  function showError() {
+    const el = document.getElementById('anError');
+    if (el) el.classList.add('visible');
+  }
+
+  function setUpdatedAt() {
+    const el = document.getElementById('anUpdatedAt');
+    if (!el) return;
+    const now = new Date();
+    el.textContent = '🔄 Updated ' + now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  }
+
+  /* ── Main fetch & render ─────────────────────────────────────────── */
+  function loadAnalytics() {
+    fetch('/analytics/data')
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => {
+        try { renderKPIs(data.kpis || {}); }         catch(e) { console.warn('KPI render:', e); }
+        try { renderPerf(data.my_performance || {}); } catch(e) { console.warn('Perf render:', e); }
+        try { renderAttendance(data.attendance_trends || {}); } catch(e) { console.warn('Att render:', e); }
+        try { renderTasks(data.task_trends || {}); }  catch(e) { console.warn('Task render:', e); }
+        try { renderLeave(data.leave_trends || {}); } catch(e) { console.warn('Leave render:', e); }
+        try { renderDonut(data.kpis || {}, data.my_performance || {}); } catch(e) {}
+        try { renderTeam(data.team_comparison || []); } catch(e) {}
+        setUpdatedAt();
+      })
+      .catch(err => {
+        console.error('Analytics fetch failed:', err);
+        showError();
+      });
+  }
+
+  /* ── Boot ────────────────────────────────────────────────────────── */
+  loadAnalytics();
+  // Auto-refresh every 5 minutes
+  setInterval(loadAnalytics, 5 * 60 * 1000);
+})();
+</script>
+{% endblock %}

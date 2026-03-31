@@ -175,3 +175,7 @@ cython_debug/
 *.db
 *.sqlite
 *.sqlite3
+
+# Production-Ready Git Push Additions
+node_modules/
+tests/test_crm.db

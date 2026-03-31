@@ -69,15 +69,18 @@ def clock_out(db: Session, employee_id: int) -> Attendance:
 
 
 def get_attendance_history(
-    db: Session, employee_id: int, limit: int = 30
+    db: Session,
+    employee_id: int,
+    limit: int = 30,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> list[Attendance]:
-    return (
-        db.query(Attendance)
-        .filter(Attendance.employee_id == employee_id)
-        .order_by(Attendance.date.desc())
-        .limit(limit)
-        .all()
-    )
+    q = db.query(Attendance).filter(Attendance.employee_id == employee_id)
+    if date_from:
+        q = q.filter(Attendance.date >= date_from)
+    if date_to:
+        q = q.filter(Attendance.date <= date_to)
+    return q.order_by(Attendance.date.desc()).limit(limit).all()
 
 
 def get_all_attendance_today(db: Session) -> list[Attendance]:

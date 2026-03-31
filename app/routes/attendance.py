@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request, Form, Depends
+from datetime import date
+from fastapi import APIRouter, Request, Form, Depends, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -11,6 +12,10 @@ from app.services.break_service import (
     start_break, end_break, get_today_breaks, get_active_break, BreakError,
 )
 
+# Late clock-in thresholds (09:30)
+_LATE_HOUR = 9
+_LATE_MINUTE = 30
+
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -18,14 +23,31 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("/", response_class=HTMLResponse)
 def attendance_page(
     request: Request,
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
     emp_id = current_user["user_id"]
     today_record = get_today_record(db, emp_id)
-    history = get_attendance_history(db, emp_id)
     breaks = get_today_breaks(db, emp_id)
     active_break = get_active_break(db, emp_id)
+
+    df: date | None = None
+    dt: date | None = None
+    try:
+        if date_from:
+            df = date.fromisoformat(date_from)
+    except ValueError:
+        pass
+    try:
+        if date_to:
+            dt = date.fromisoformat(date_to)
+    except ValueError:
+        pass
+
+    history = get_attendance_history(db, emp_id, date_from=df, date_to=dt)
+
     return templates.TemplateResponse(
         "attendance/index.html",
         {
@@ -35,6 +57,10 @@ def attendance_page(
             "history": history,
             "breaks": breaks,
             "active_break": active_break,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "late_hour": _LATE_HOUR,
+            "late_minute": _LATE_MINUTE,
             "error": None,
         },
     )

@@ -12,12 +12,26 @@ from app.core.auth import get_session_user
 import app.models  # noqa: F401
 
 # Import routers
-from app.routes import auth, employees, attendance, tasks, leaves, dashboard, notifications
+from app.routes import auth, employees, attendance, tasks, leaves, dashboard, notifications, api
+
+# Analytics router — guarded so a broken analytics module never kills the app
+try:
+    from app.routes import analytics as analytics_router
+    _ANALYTICS_OK = True
+except Exception as _an_exc:
+    print(f"[startup] analytics router skipped: {_an_exc}")
+    _ANALYTICS_OK = False
 
 # ---------------------------------------------------------------------------
-# Create tables
+# Create tables & Run safe schema migrations
 # ---------------------------------------------------------------------------
 Base.metadata.create_all(bind=engine)
+
+try:
+    from app.core.db_migration import apply_safe_migrations
+    apply_safe_migrations(engine)
+except Exception as e:
+    print(f"Skipping migrations, error: {e}")
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -44,6 +58,10 @@ app.include_router(tasks.router)
 app.include_router(leaves.router)
 app.include_router(dashboard.router)
 app.include_router(notifications.router)
+app.include_router(api.router)
+
+if _ANALYTICS_OK:
+    app.include_router(analytics_router.router)
 
 
 # ---------------------------------------------------------------------------

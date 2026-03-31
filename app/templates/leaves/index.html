@@ -71,28 +71,31 @@
 
 <!-- Leave requests -->
 <div class="card">
-  <div class="card-header">
-    <h2>
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">
       {% if current_user.role == 'admin' %}All Leave Requests
-      {% elif current_user.role == 'manager' %}Pending Leave Requests
+      {% elif current_user.role in ('manager', 'team_lead') %}Team Leave Requests
       {% else %}My Leave Requests
       {% endif %}
     </h2>
+    {% if current_user.role in ('admin', 'manager', 'team_lead') %}
+    <a href="/api/leave/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+    {% endif %}
   </div>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          {% if current_user.role != 'employee' %}<th>Employee ID</th>{% endif %}
+          {% if current_user.role != 'employee' %}<th>Employee</th>{% endif %}
           <th>Type</th><th>From</th><th>To</th><th>Days</th>
-          <th>Status</th><th>Reason</th>
-          {% if current_user.role in ('admin', 'manager') %}<th>Action</th>{% endif %}
+          <th>Status</th><th>Reason</th><th>Review Note</th>
+          {% if current_user.role in ('admin', 'manager', 'team_lead') %}<th>Action</th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for leave in leaves %}
         <tr>
-          {% if current_user.role != 'employee' %}<td>#{{ leave.employee_id }}</td>{% endif %}
+          {% if current_user.role != 'employee' %}<td class="text-muted">#{{ leave.employee_id }}</td>{% endif %}
           <td><span class="badge badge-blue">{{ leave.leave_type.value }}</span></td>
           <td>{{ leave.start_date }}</td>
           <td>{{ leave.end_date }}</td>
@@ -107,23 +110,35 @@
             {% endif %}
           </td>
           <td class="text-muted text-sm">{{ leave.reason or '—' }}</td>
-          {% if current_user.role in ('admin', 'manager') %}
+          <td class="text-muted text-sm">
+            {% if leave.review_note %}
+              <span title="{{ leave.review_note }}">
+                {{ leave.review_note[:40] }}{% if leave.review_note|length > 40 %}…{% endif %}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          {% if current_user.role in ('admin', 'manager', 'team_lead') %}
           <td>
             {% if leave.status.value == 'pending' %}
-            <form method="post" action="/leaves/{{ leave.id }}/review" style="display:flex;gap:6px">
-              <input type="hidden" name="note" value="" />
-              <button name="action" value="approved" class="btn btn-success btn-sm">✓ Approve</button>
-              <button name="action" value="rejected" class="btn btn-danger btn-sm">✗ Reject</button>
+            <form method="post" action="/leaves/{{ leave.id }}/review"
+                  style="display:flex;flex-direction:column;gap:5px;min-width:180px">
+              <input type="text" name="note" class="form-control"
+                     placeholder="Optional note…"
+                     style="font-size:12px;padding:3px 6px" />
+              <div style="display:flex;gap:5px">
+                <button name="action" value="approved" class="btn btn-success btn-sm">✓ Approve</button>
+                <button name="action" value="rejected" class="btn btn-danger btn-sm">✗ Reject</button>
+              </div>
             </form>
             {% else %}
-              <span class="text-muted text-sm">—</span>
+              <span class="text-muted text-sm">Reviewed</span>
             {% endif %}
           </td>
           {% endif %}
         </tr>
         {% else %}
         <tr>
-          <td colspan="8" style="text-align:center;color:var(--gray-400);padding:32px">No leave requests found.</td>
+          <td colspan="9" style="text-align:center;color:var(--gray-400);padding:32px">No leave requests found.</td>
         </tr>
         {% endfor %}
       </tbody>

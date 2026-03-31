@@ -10,12 +10,18 @@ from app.services.leave_service import (
     list_pending_leaves, list_all_leaves, get_leave_balance, LeaveError,
 )
 
-# Notification trigger — imported defensively
 try:
-    from app.services.notification_service import create_notification as _create_notif
-    _NOTIF_OK = True
+    from app.services.hierarchy_service import is_user_in_scope
+except ImportError:
+    is_user_in_scope = None
+
+# Audit trigger — imported defensively
+
+try:
+    from app.services.audit_service import log_action as _audit
+    _AUDIT_OK = True
 except Exception:
-    _NOTIF_OK = False
+    _AUDIT_OK = False
 
 
 router = APIRouter(prefix="/leaves", tags=["leaves"])
@@ -33,8 +39,12 @@ def leaves_page(
 
     if role == "admin":
         leaves = list_all_leaves(db)
-    elif role == "manager":
-        leaves = list_pending_leaves(db)
+    elif role in ("manager", "team_lead"):
+        all_pending = list_pending_leaves(db)
+        if is_user_in_scope:
+            leaves = [l for l in all_pending if is_user_in_scope(db, current_user, l.employee_id)]
+        else:
+            leaves = all_pending
     else:
         leaves = list_leaves_for_employee(db, uid)
 
@@ -64,7 +74,15 @@ def apply_leave_post(
     try:
         sd = date.fromisoformat(start_date)
         ed = date.fromisoformat(end_date)
-        apply_leave(db, current_user["user_id"], leave_type, sd, ed, reason or None)
+        leave = apply_leave(db, current_user["user_id"], leave_type, sd, ed, reason or None)
+        
+        if _AUDIT_OK:
+            try:
+                _audit(db, current_user["user_id"], "leave_applied", "leave", leave.id,
+                       f"Applied for {leave.total_days} days")
+            except Exception:
+                pass
+                
         return RedirectResponse("/leaves/", status_code=302)
     except (LeaveError, ValueError) as e:
         balance = get_leave_balance(db, current_user["user_id"])
@@ -89,23 +107,16 @@ def review_leave_post(
     action: str = Form(...),
     note: str = Form(""),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(role_required("admin", "manager")),
+    current_user: dict = Depends(role_required("admin", "manager", "team_lead")),
 ):
     try:
         updated = review_leave(db, leave_id, current_user["user_id"], action, note or None)
-        # ── Notification trigger (safe) ──
-        if _NOTIF_OK:
+
+        if _AUDIT_OK:
             try:
-                verb = "approved" if action == "approved" else "rejected"
-                ntype = "leave_approved" if action == "approved" else "leave_rejected"
-                _create_notif(
-                    db,
-                    user_id=updated.employee_id,
-                    message=f"Your leave request ({updated.leave_type.value}, "
-                            f"{updated.total_days} day{'s' if updated.total_days != 1 else ''}) "
-                            f"has been {verb}.",
-                    notif_type=ntype,
-                )
+                audit_action = "leave_approved" if action == "approved" else "leave_rejected"
+                _audit(db, current_user["user_id"], audit_action, "leave", leave_id,
+                       note or None)
             except Exception:
                 pass
     except LeaveError:

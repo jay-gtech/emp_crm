@@ -15,6 +15,11 @@ from app.models.break_record import BreakRecord, BreakStatus
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 
+try:
+    from app.services.hierarchy_service import apply_hierarchy_filter
+except ImportError:
+    apply_hierarchy_filter = None
+
 # ---------------------------------------------------------------------------
 # Thresholds — change here, nowhere else
 # ---------------------------------------------------------------------------
@@ -104,7 +109,7 @@ def get_employee_performance(db: Session, employee_id: int) -> dict:
 # 2. Manager / admin team headcount snapshot (today)
 # ---------------------------------------------------------------------------
 
-def get_manager_insights(db: Session) -> dict:
+def get_manager_insights(db: Session, request_user: dict | None = None) -> dict:
     """
     Returns team attendance snapshot for today.
     Keys: total_employees, present_today, absent_today, late_clock_ins, on_break
@@ -113,9 +118,11 @@ def get_manager_insights(db: Session) -> dict:
     try:
         today = date.today()
 
-        total_employees = (
-            db.query(User).filter(User.is_active == 1).count()
-        )
+        employees = db.query(User).filter(User.is_active == 1).all()
+        if request_user and apply_hierarchy_filter:
+            employees = apply_hierarchy_filter(db, request_user, employees)
+        total_employees = len(employees)
+
 
         today_records = (
             db.query(Attendance)
@@ -125,6 +132,8 @@ def get_manager_insights(db: Session) -> dict:
             )
             .all()
         )
+        if request_user and apply_hierarchy_filter:
+            today_records = apply_hierarchy_filter(db, request_user, today_records)
 
         present_today = len(today_records)
         absent_today = max(total_employees - present_today, 0)
@@ -273,7 +282,7 @@ def get_alerts(db: Session, role: str, user_id: int) -> list[dict]:
 # 5. Team performance — weekly hours + task stats per employee
 # ---------------------------------------------------------------------------
 
-def get_team_performance(db: Session) -> list[dict]:
+def get_team_performance(db: Session, request_user: dict | None = None) -> list[dict]:
     """
     Returns a list of performance dicts for every active employee, covering
     the current Mon–today window.
@@ -352,6 +361,9 @@ def get_team_performance(db: Session) -> list[dict]:
                 "performance_score": performance_score,
             })
 
+        if request_user and apply_hierarchy_filter:
+            result = apply_hierarchy_filter(db, request_user, result)
+
         # Sort by performance_score descending
         result.sort(key=lambda x: x["performance_score"], reverse=True)
         return result
@@ -368,7 +380,7 @@ _LOW_HOURS_THRESHOLD: float = 20.0   # < 20 h/week
 _LOW_TASK_RATE: int = 40             # < 40 % task completion
 
 
-def get_low_performers(db: Session) -> list[dict]:
+def get_low_performers(db: Session, request_user: dict | None = None) -> list[dict]:
     """
     Returns a subset of get_team_performance() entries that meet at least one
     low-performance criterion.
@@ -379,7 +391,7 @@ def get_low_performers(db: Session) -> list[dict]:
     Returns [] on any exception.
     """
     try:
-        team = get_team_performance(db)
+        team = get_team_performance(db, request_user=request_user)
         low: list[dict] = []
         for member in team:
             low_hours = member["week_hours"] < _LOW_HOURS_THRESHOLD
@@ -402,7 +414,7 @@ def get_low_performers(db: Session) -> list[dict]:
 # 7. Task distribution — org-wide breakdown
 # ---------------------------------------------------------------------------
 
-def get_task_distribution(db: Session) -> dict:
+def get_task_distribution(db: Session, request_user: dict | None = None) -> dict:
     """
     Returns org-wide task status counts.
 
@@ -412,6 +424,8 @@ def get_task_distribution(db: Session) -> dict:
     _safe = {"total": 0, "completed": 0, "pending": 0, "in_progress": 0, "overdue": 0}
     try:
         all_tasks = db.query(Task).all()
+        if request_user and apply_hierarchy_filter:
+            all_tasks = apply_hierarchy_filter(db, request_user, all_tasks)
         today = date.today()
 
         total = len(all_tasks)

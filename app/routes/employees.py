@@ -9,6 +9,12 @@ from app.services.employee_service import (
     deactivate_employee, list_departments, EmployeeError,
 )
 
+try:
+    from app.services.audit_service import log_action as _audit
+    _AUDIT_OK = True
+except Exception:
+    _AUDIT_OK = False
+
 router = APIRouter(prefix="/employees", tags=["employees"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -20,7 +26,7 @@ def employee_list(
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
-    employees = list_employees(db, department=department)
+    employees = list_employees(db, department=department, request_user=current_user)
     departments = list_departments(db)
     return templates.TemplateResponse(
         "employees/list.html",
@@ -96,6 +102,12 @@ def edit_employee(
 ):
     try:
         update_employee(db, employee_id, name=name, department=department or None, role=role)
+        if _AUDIT_OK:
+            try:
+                _audit(db, current_user["user_id"], "employee_updated", "employee", employee_id,
+                       f"name={name}, department={department or ''}, role={role}")
+            except Exception:
+                pass
         return RedirectResponse(f"/employees/{employee_id}", status_code=302)
     except EmployeeError as e:
         employee = get_employee(db, employee_id)
@@ -115,6 +127,11 @@ def deactivate(
 ):
     try:
         deactivate_employee(db, employee_id)
+        if _AUDIT_OK:
+            try:
+                _audit(db, current_user["user_id"], "employee_deactivated", "employee", employee_id)
+            except Exception:
+                pass
     except EmployeeError:
         pass
     return RedirectResponse("/employees/", status_code=302)

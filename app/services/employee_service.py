@@ -2,16 +2,33 @@ from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.core.auth import hash_password
 
+# Import safely just in case
+try:
+    from app.services.hierarchy_service import apply_hierarchy_filter
+except ImportError:
+    apply_hierarchy_filter = None
+
+
 
 class EmployeeError(Exception):
     pass
 
 
-def list_employees(db: Session, department: str | None = None) -> list[User]:
+def list_employees(
+    db: Session, 
+    department: str | None = None, 
+    request_user: dict | None = None
+) -> list[User]:
     q = db.query(User).filter(User.is_active == 1)
     if department:
         q = q.filter(User.department == department)
-    return q.order_by(User.name).all()
+        
+    result = q.order_by(User.name).all()
+    
+    if request_user and apply_hierarchy_filter:
+        result = apply_hierarchy_filter(db, request_user, result)
+        
+    return result
 
 
 def get_employee(db: Session, employee_id: int) -> User:

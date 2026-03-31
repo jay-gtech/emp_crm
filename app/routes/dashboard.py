@@ -26,6 +26,11 @@ try:
 except Exception:
     _DASHBOARD_SERVICE_OK = False
 
+try:
+    from app.services.hierarchy_service import is_user_in_scope
+except ImportError:
+    is_user_in_scope = None
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -48,9 +53,13 @@ def dashboard(
     if role == "admin":
         tasks = list_all_tasks(db)
         pending_leaves = list_pending_leaves(db)
-    elif role == "manager":
+    elif role in ("manager", "team_lead"):
         tasks = list_tasks_assigned_by(db, uid)
-        pending_leaves = list_pending_leaves(db)
+        all_pending = list_pending_leaves(db)
+        if is_user_in_scope:
+            pending_leaves = [l for l in all_pending if is_user_in_scope(db, current_user, l.employee_id)]
+        else:
+            pending_leaves = all_pending
     else:
         tasks = list_tasks_for_employee(db, uid)
         pending_leaves = []
@@ -79,24 +88,24 @@ def dashboard(
         except Exception:
             performance = {}
 
-        if role in ("admin", "manager"):
+        if role in ("admin", "manager", "team_lead"):
             try:
-                manager_insights = get_manager_insights(db)
+                manager_insights = get_manager_insights(db, request_user=current_user)
             except Exception:
                 manager_insights = {}
 
             try:
-                team_performance = get_team_performance(db)
+                team_performance = get_team_performance(db, request_user=current_user)
             except Exception:
                 team_performance = []
 
             try:
-                low_performers = get_low_performers(db)
+                low_performers = get_low_performers(db, request_user=current_user)
             except Exception:
                 low_performers = []
 
             try:
-                task_distribution = get_task_distribution(db)
+                task_distribution = get_task_distribution(db, request_user=current_user)
             except Exception:
                 task_distribution = {}
 

@@ -11,13 +11,13 @@ from app.services.task_service import (
 )
 from app.services.employee_service import list_employees
 
-# Notification trigger — imported defensively so any import error here
-# never takes down the tasks router.
+# Audit trigger — imported defensively
+
 try:
-    from app.services.notification_service import create_notification as _create_notif
-    _NOTIF_OK = True
+    from app.services.audit_service import log_action as _audit
+    _AUDIT_OK = True
 except Exception:
-    _NOTIF_OK = False
+    _AUDIT_OK = False
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 templates = Jinja2Templates(directory="app/templates")
@@ -32,14 +32,12 @@ def task_list(
     uid = current_user["user_id"]
     role = current_user["role"]
 
-    if role == "admin":
-        tasks = list_all_tasks(db)
-    elif role == "manager":
-        tasks = list_tasks_assigned_by(db, uid)
+    if role in ("admin", "manager", "team_lead"):
+        tasks = list_all_tasks(db, request_user=current_user)
     else:
         tasks = list_tasks_for_employee(db, uid)
 
-    employees = list_employees(db) if role in ("admin", "manager") else []
+    employees = list_employees(db, request_user=current_user) if role in ("admin", "manager", "team_lead") else []
     return templates.TemplateResponse(
         "tasks/list.html",
         {
@@ -60,7 +58,7 @@ def create_task_post(
     priority: str = Form("medium"),
     due_date: str = Form(""),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(role_required("admin", "manager")),
+    current_user: dict = Depends(role_required("admin", "manager", "team_lead")),
 ):
     dd = None
     if due_date:
@@ -79,15 +77,11 @@ def create_task_post(
             priority=priority,
             due_date=dd,
         )
-        # ── Notification trigger (safe, never blocks the response) ──
-        if _NOTIF_OK:
+
+        if _AUDIT_OK:
             try:
-                _create_notif(
-                    db,
-                    user_id=assigned_to,
-                    message=f'You have been assigned a new task: "{task.title}".',
-                    notif_type="task_assigned",
-                )
+                _audit(db, current_user["user_id"], "task_created", "task", task.id,
+                       f'"{task.title}" assigned to user {assigned_to}')
             except Exception:
                 pass
     except TaskError:
@@ -115,10 +109,15 @@ def delete_task_post(
     task_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(role_required("admin", "manager")),
+    current_user: dict = Depends(role_required("admin", "manager", "team_lead")),
 ):
     try:
         delete_task(db, task_id, current_user["user_id"])
+        if _AUDIT_OK:
+            try:
+                _audit(db, current_user["user_id"], "task_deleted", "task", task_id)
+            except Exception:
+                pass
     except TaskError:
         pass
     return RedirectResponse("/tasks/", status_code=302)
