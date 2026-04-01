@@ -25,6 +25,7 @@ except Exception as _an_exc:
 # AI router — guarded; requires scikit-learn / pandas which are optional
 try:
     from app.routes import ai as ai_router
+    from app.routes import ai_leave as ai_leave_router
     _AI_OK = True
 except Exception as _ai_exc:
     print(f"[startup] ai router skipped: {_ai_exc}")
@@ -101,6 +102,7 @@ if _ANALYTICS_OK:
 
 if _AI_OK:
     app.include_router(ai_router.router)
+    app.include_router(ai_leave_router.router)
 
 
 # ---------------------------------------------------------------------------

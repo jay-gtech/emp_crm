@@ -33,6 +33,7 @@ except ImportError:
 
 try:
     from app.services.ai_task_service import get_ai_task_suggestions
+    from app.services.ai_leave_service import get_leave_predictions
     _AI_SERVICE_OK = True
 except Exception:
     _AI_SERVICE_OK = False
@@ -130,11 +131,18 @@ def dashboard(
 
     # ── AI task suggestions ──────────────────────────────────────────────────
     ai_suggestions: list = []
+    leave_predictions: dict = {}
     if _AI_SERVICE_OK:
         try:
             ai_suggestions = get_ai_task_suggestions(db, current_user)
         except Exception:
             ai_suggestions = []
+            
+        if role in ("admin", "manager", "team_lead"):
+            try:
+                leave_predictions = get_leave_predictions(db, current_user)
+            except Exception:
+                leave_predictions = {}
 
     return templates.TemplateResponse(
         "dashboard/index.html",
@@ -159,5 +167,6 @@ def dashboard(
             "task_distribution": task_distribution,
             # ── AI suggestions ──
             "ai_suggestions": ai_suggestions,
+            "leave_predictions": leave_predictions,
         },
     )
