@@ -24,11 +24,20 @@ def login(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    # Clear any stale session data on a new login attempt
+    clear_session(request)
+    
+    clean_email = email.strip().lower()
+    print(f"DEBUG: Login attempt for {clean_email}")
+    
     try:
-        user = authenticate_user(db, email.strip().lower(), password)
+        user = authenticate_user(db, clean_email, password)
+        print(f"DEBUG: User found and authenticated: {user.name}")
+        
         set_session_user(request, user.id, user.role.value, user.name)
         return RedirectResponse("/dashboard", status_code=302)
     except AuthError as e:
+        print(f"DEBUG: Auth failed for {clean_email}: {str(e)}")
         return templates.TemplateResponse(
             "auth/login.html", {"request": request, "error": str(e)}, status_code=400
         )

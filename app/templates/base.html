@@ -68,7 +68,7 @@
     .notif-type-info           { border-left: 3px solid var(--gray-400); }
   </style>
 </head>
-<body>
+<body data-page="{{ request.url.path }}">
 <div class="layout">
   <!-- Sidebar -->
   <aside class="sidebar">
@@ -308,8 +308,8 @@ window.showToast = function(msg, type, duration) {
 };
 </script>
 
+{% endif %}
 <!-- UX Intelligence Layer -->
 <script src="/static/js/ux.js" defer></script>
-{% endif %}
 </body>
 </html>

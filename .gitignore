@@ -176,6 +176,23 @@ cython_debug/
 *.sqlite
 *.sqlite3
 
-# Production-Ready Git Push Additions
+# Production-Ready additions
 node_modules/
-tests/test_crm.db
+
+# CRM — local databases (never commit data)
+*.db
+*.sqlite
+*.sqlite3
+test_crm.db
+
+# CRM — ML training log (runtime-generated, not source)
+app/ml/task_assistant/training_log.jsonl
+
+# Coverage output
+htmlcov/
+.coverage
+coverage.xml
+
+# OS artefacts
+.DS_Store
+Thumbs.db

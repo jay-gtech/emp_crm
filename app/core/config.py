@@ -7,7 +7,18 @@ class Settings:
     APP_NAME: str = "Employee CRM"
     APP_VERSION: str = "1.0.0"
     SECRET_KEY: str = os.getenv("SECRET_KEY", "change-this-super-secret-key-in-production")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR}/emp_crm.db")
+    
+    ENV: str = os.getenv("ENV", "dev") # dev, test, prod
+    
+    _DATABASE_URL_DEFAULT: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR}/emp_crm.db")
+    TEST_DATABASE_URL: str = os.getenv("TEST_DATABASE_URL", f"sqlite:///{BASE_DIR}/test_crm.db")
+
+    @property
+    def DATABASE_URL(self) -> str:
+        if self.ENV == "test":
+            return self.TEST_DATABASE_URL
+        return self._DATABASE_URL_DEFAULT
+
     SESSION_MAX_AGE: int = 60 * 60 * 8  # 8 hours
     LEAVE_ANNUAL_QUOTA: int = 20  # default annual leave days per employee
 

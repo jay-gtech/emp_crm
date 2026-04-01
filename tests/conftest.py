@@ -1,20 +1,28 @@
 import pytest
 import pytest_asyncio
+import os
+
+# Must be set before ANY app imports so settings.ENV evaluates to "test"
+os.environ["ENV"] = "test"
+
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.main import app as fastapi_app
 from app.core.database import Base, get_db
 import app.models  # Ensures all models are registered with Base.metadata before create_all
 from app.models.user import User, UserRole
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_crm.db"
+# Use TEST_DATABASE_URL directly — avoids ENV timing issues with class attributes
+SQLALCHEMY_DATABASE_URL = settings.TEST_DATABASE_URL
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool, # Better for SQLite in-memory, but fine for file-based tests too
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

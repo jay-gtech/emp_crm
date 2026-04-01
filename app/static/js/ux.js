@@ -593,20 +593,42 @@
      BOOT
      ═══════════════════════════════════════════════════════════════════════ */
   ready(() => {
-    try { initDarkMode(); }          catch(e) { console.warn('darkMode:', e); }
-    try { upgradeEmptyStates(); }    catch(e) { console.warn('emptyStates:', e); }
-    try { initFormUX(); }            catch(e) { console.warn('formUX:', e); }
-    try { initAlerts(); }            catch(e) { console.warn('alerts:', e); }
-    try { initKeyboardShortcuts(); } catch(e) { console.warn('shortcuts:', e); }
-    try { initClickableCards(); }    catch(e) { console.warn('clickCards:', e); }
-    try { initConfirmDialogs(); }    catch(e) { console.warn('confirmDialog:', e); }
-    try { initQuickActions(); }      catch(e) { console.warn('quickActions:', e); }
-    try { initSmoothFocus(); }       catch(e) { console.warn('smoothFocus:', e); }
-    try { initTooltips(); }          catch(e) { console.warn('tooltips:', e); }
-    try { initTableHoverActions(); } catch(e) { console.warn('tableHover:', e); }
-    try { initCopyFeedback(); }      catch(e) { console.warn('copy:', e); }
-    try { initCommandPalette(); }    catch(e) { console.warn('cmdPalette:', e); }
-    try { requestAnimationFrame(initPageTransitions); } catch(e) {}
-    document.documentElement.dataset.uxReady = "true";
+    try {
+      // ── Page Level Control ──────────────────────────────────────────
+      const path = document.body.dataset.page || '';
+      const isAuthPage = path.includes('/auth/login');
+
+      // ── Core Features (Always Run) ──────────────────────────────────
+      try { initDarkMode(); } catch(e) { console.warn('darkMode:', e); }
+      try { requestAnimationFrame(initPageTransitions); } catch(e) {}
+
+      // ── App Features (Skip on Login) ────────────────────────────────
+      if (isAuthPage) {
+        console.log('Skipping app features on login page.');
+        // Still run form UX for the login form if present
+        try { initFormUX(); } catch(e) {}
+        document.documentElement.dataset.uxReady = "true";
+        return;
+      }
+
+      try { upgradeEmptyStates(); }    catch(e) { console.warn('emptyStates:', e); }
+      try { initFormUX(); }            catch(e) { console.warn('formUX:', e); }
+      try { initAlerts(); }            catch(e) { console.warn('alerts:', e); }
+      try { initKeyboardShortcuts(); } catch(e) { console.warn('shortcuts:', e); }
+      try { initClickableCards(); }    catch(e) { console.warn('clickCards:', e); }
+      try { initConfirmDialogs(); }    catch(e) { console.warn('confirmDialog:', e); }
+      try { initQuickActions(); }      catch(e) { console.warn('quickActions:', e); }
+      try { initSmoothFocus(); }       catch(e) { console.warn('smoothFocus:', e); }
+      try { initTooltips(); }          catch(e) { console.warn('tooltips:', e); }
+      try { initTableHoverActions(); } catch(e) { console.warn('tableHover:', e); }
+      try { initCopyFeedback(); }      catch(e) { console.warn('copy:', e); }
+      try { initCommandPalette(); }    catch(e) { console.warn('cmdPalette:', e); }
+
+      document.documentElement.dataset.uxReady = "true";
+    } catch (err) {
+      console.error('UX Intelligence Layer Error:', err);
+      // Ensure page is still revealed even on total failure
+      document.body.classList.add('ux-page-loaded');
+    }
   });
 })();

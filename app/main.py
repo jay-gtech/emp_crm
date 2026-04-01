@@ -22,21 +22,57 @@ except Exception as _an_exc:
     print(f"[startup] analytics router skipped: {_an_exc}")
     _ANALYTICS_OK = False
 
-# ---------------------------------------------------------------------------
-# Create tables & Run safe schema migrations
-# ---------------------------------------------------------------------------
-Base.metadata.create_all(bind=engine)
-
+# AI router — guarded; requires scikit-learn / pandas which are optional
 try:
-    from app.core.db_migration import apply_safe_migrations
-    apply_safe_migrations(engine)
-except Exception as e:
-    print(f"Skipping migrations, error: {e}")
+    from app.routes import ai as ai_router
+    _AI_OK = True
+except Exception as _ai_exc:
+    print(f"[startup] ai router skipped: {_ai_exc}")
+    _AI_OK = False
 
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
+
+@app.on_event("startup")
+def on_startup():
+    print(f"🚀 Running ENV: {settings.ENV}")
+    print(f"📂 Using DB: {settings.DATABASE_URL}")
+    
+    from app.core.database import SessionLocal
+    from app.models.user import User, UserRole
+    from app.core.auth import hash_password
+    
+    db = SessionLocal()
+    try:
+        # 1. Create tables if they don't exist
+        Base.metadata.create_all(bind=engine)
+        
+        # 2. Apply safe migrations 
+        try:
+            from app.core.db_migration import apply_safe_migrations
+            apply_safe_migrations(engine)
+        except Exception as e:
+            print(f"[startup] migrations skipped: {e}")
+
+        # 3. Ensure default admin exists
+        admin_email = "admin@company.com"
+        admin = db.query(User).filter(User.email == admin_email).first()
+        if not admin:
+            print(f"[startup] Seed: Creating default admin ({admin_email})...")
+            new_admin = User(
+                name="System Admin",
+                email=admin_email,
+                hashed_password=hash_password("admin123"),
+                role=UserRole.admin,
+                is_active=1
+            )
+            db.add(new_admin)
+            db.commit()
+            print("[startup] Seed: Admin created successfully.")
+    finally:
+        db.close()
 
 app.add_middleware(
     SessionMiddleware,
@@ -62,6 +98,9 @@ app.include_router(api.router)
 
 if _ANALYTICS_OK:
     app.include_router(analytics_router.router)
+
+if _AI_OK:
+    app.include_router(ai_router.router)
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,12 @@ try:
 except ImportError:
     is_user_in_scope = None
 
+try:
+    from app.services.ai_task_service import get_ai_task_suggestions
+    _AI_SERVICE_OK = True
+except Exception:
+    _AI_SERVICE_OK = False
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -122,6 +128,14 @@ def dashboard(
     # Attach overdue to task_stats so the template has one source of truth
     task_stats["overdue"] = overdue_count
 
+    # ── AI task suggestions ──────────────────────────────────────────────────
+    ai_suggestions: list = []
+    if _AI_SERVICE_OK:
+        try:
+            ai_suggestions = get_ai_task_suggestions(db, current_user)
+        except Exception:
+            ai_suggestions = []
+
     return templates.TemplateResponse(
         "dashboard/index.html",
         {
@@ -143,5 +157,7 @@ def dashboard(
             "team_performance": team_performance,
             "low_performers": low_performers,
             "task_distribution": task_distribution,
+            # ── AI suggestions ──
+            "ai_suggestions": ai_suggestions,
         },
     )
