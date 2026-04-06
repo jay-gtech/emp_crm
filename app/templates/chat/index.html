@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}Team Chat — Employee CRM{% endblock %}
+{% block page_title %}Team Chat{% endblock %}
+{% block content %}
+
+<style>
+  .chat-layout {
+    display: flex;
+    height: calc(100vh - var(--topbar-h) - 48px);
+    min-height: 480px;
+    background: #fff;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+    border: 1px solid var(--gray-200);
+  }
+
+  /* ── Contacts sidebar ─────────────────── */
+  .chat-sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--gray-200);
+    display: flex;
+    flex-direction: column;
+    background: var(--gray-50);
+  }
+  .chat-sidebar-header {
+    padding: 16px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-700);
+    border-bottom: 1px solid var(--gray-200);
+    background: #fff;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .chat-contacts { overflow-y: auto; flex: 1; }
+  .chat-contact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--gray-100);
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .chat-contact:hover { background: var(--gray-100); }
+  .chat-contact.active { background: var(--primary-light); }
+  .chat-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .chat-contact-info { min-width: 0; }
+  .chat-contact-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chat-contact-role {
+    font-size: 11px;
+    color: var(--gray-500);
+    text-transform: capitalize;
+  }
+  .chat-no-contacts {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 13px;
+  }
+
+  /* ── Main chat area ───────────────────── */
+  .chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .chat-main-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--gray-200);
+    background: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--gray-800);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 57px;
+  }
+  .chat-main-header .placeholder-text { color: var(--gray-400); font-weight: 400; }
+  .chat-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--gray-50);
+  }
+  .msg-bubble {
+    max-width: 68%;
+    padding: 9px 14px;
+    border-radius: 14px;
+    font-size: 13.5px;
+    line-height: 1.45;
+    word-break: break-word;
+  }
+  .msg-mine {
+    align-self: flex-end;
+    background: var(--primary);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg-theirs {
+    align-self: flex-start;
+    background: #fff;
+    color: var(--gray-800);
+    border: 1px solid var(--gray-200);
+    border-bottom-left-radius: 4px;
+  }
+  .msg-empty {
+    margin: auto;
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 13px;
+  }
+  .chat-input-bar {
+    padding: 12px 16px;
+    border-top: 1px solid var(--gray-200);
+    background: #fff;
+    display: none;
+  }
+  .chat-input-bar form {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+  }
+</style>
+
+<div class="chat-layout">
+
+  <!-- ── Contacts sidebar ───────────────────────────────────── -->
+  <div class="chat-sidebar">
+    <div class="chat-sidebar-header">💬 Colleagues</div>
+    <div class="chat-contacts">
+      {% for u in chat_users %}
+      <div class="chat-contact"
+           data-id="{{ u.id }}"
+           data-name="{{ u.name }}"
+           onclick="selectContact({{ u.id }}, '{{ u.name }}', this)">
+        <div class="chat-avatar">{{ u.name[0].upper() }}</div>
+        <div class="chat-contact-info">
+          <div class="chat-contact-name">{{ u.name }}</div>
+          <div class="chat-contact-role">{{ u.role.value.replace('_', ' ') }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="chat-no-contacts">
+        No accessible colleagues found.<br>
+        <span style="font-size:11px">Your RBAC scope determines who you can chat with.</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Main panel ─────────────────────────────────────────── -->
+  <div class="chat-main">
+
+    <div class="chat-main-header" id="chatHeader">
+      <span class="placeholder-text" id="headerPlaceholder">Select a colleague to start chatting</span>
+      <div id="headerActive" style="display:none; align-items:center; gap:10px;">
+        <div class="chat-avatar" id="headerAvatar" style="width:30px;height:30px;font-size:12px;"></div>
+        <span id="headerName"></span>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg-empty" id="msgEmpty">
+        <div style="font-size:32px;margin-bottom:8px">💬</div>
+        Pick a colleague from the left to start a conversation.
+      </div>
+    </div>
+
+    <div class="chat-input-bar" id="chatInputBar">
+      <form onsubmit="sendMessage(event)">
+        <input type="text" id="chatInput" class="form-control"
+               placeholder="Type a message…" autocomplete="off" required style="flex:1;">
+        <button type="submit" class="btn btn-primary">Send</button>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const MY_ID = {{ current_user.user_id }};
+  let activeUserId = null;
+  let pollTimer    = null;
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const msgPane       = document.getElementById('chatMessages');
+  const inputBar      = document.getElementById('chatInputBar');
+  const msgEmpty      = document.getElementById('msgEmpty');
+  const headerPH      = document.getElementById('headerPlaceholder');
+  const headerActive  = document.getElementById('headerActive');
+  const headerAvatar  = document.getElementById('headerAvatar');
+  const headerName    = document.getElementById('headerName');
+
+  // ── Select contact ────────────────────────────────────────────────────────
+  window.selectContact = function (userId, name, el) {
+    if (activeUserId === userId) return;
+    activeUserId = userId;
+
+    // Sidebar highlight
+    document.querySelectorAll('.chat-contact').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+
+    // Header
+    headerPH.style.display  = 'none';
+    headerActive.style.display = 'flex';
+    headerAvatar.textContent = name[0].toUpperCase();
+    headerName.textContent   = name;
+
+    // Show input
+    inputBar.style.display = 'block';
+
+    // Load immediately + start poll
+    if (pollTimer) clearInterval(pollTimer);
+    loadMessages();
+    pollTimer = setInterval(loadMessages, 3000);
+  };
+
+  // ── Load messages ─────────────────────────────────────────────────────────
+  async function loadMessages() {
+    if (!activeUserId) return;
+    try {
+      const r = await fetch(`/chat/history/${activeUserId}`);
+      if (!r.ok) return;
+      const msgs = await r.json();
+      renderMessages(msgs);
+    } catch (_) {}
+  }
+
+  function renderMessages(msgs) {
+    if (!msgs || msgs.length === 0) {
+      msgPane.innerHTML = '<div class="msg-empty">No messages yet. Say hello! 👋</div>';
+      return;
+    }
+
+    const atBottom = msgPane.scrollHeight - msgPane.clientHeight <= msgPane.scrollTop + 30;
+
+    msgPane.innerHTML = msgs.map(m => {
+      const mine = m.sender_id === MY_ID;
+      return `<div class="msg-bubble ${mine ? 'msg-mine' : 'msg-theirs'}">${escHtml(m.content)}</div>`;
+    }).join('');
+
+    if (atBottom) msgPane.scrollTop = msgPane.scrollHeight;
+  }
+
+  // ── Send message ──────────────────────────────────────────────────────────
+  window.sendMessage = async function (e) {
+    e.preventDefault();
+    if (!activeUserId) return;
+    const input   = document.getElementById('chatInput');
+    const content = input.value.trim();
+    if (!content) return;
+    input.value = '';
+
+    const body = new URLSearchParams();
+    body.append('receiver_id', activeUserId);
+    body.append('content', content);
+
+    try {
+      await fetch('/chat/send', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      await loadMessages();
+      setTimeout(() => { msgPane.scrollTop = msgPane.scrollHeight; }, 60);
+    } catch (_) {}
+  };
+
+  // ── HTML escape ───────────────────────────────────────────────────────────
+  function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // Stop polling when tab goes to background
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearInterval(pollTimer);
+    } else if (activeUserId) {
+      loadMessages();
+      pollTimer = setInterval(loadMessages, 3000);
+    }
+  });
+})();
+</script>
+
+{% endblock %}

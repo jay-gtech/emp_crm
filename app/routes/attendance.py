@@ -1,5 +1,5 @@
 from datetime import date
-from fastapi import APIRouter, Request, Form, Depends, Query
+from fastapi import APIRouter, Request, Form, Depends, Query, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -29,6 +29,31 @@ def attendance_page(
     current_user: dict = Depends(login_required),
 ):
     emp_id = current_user["user_id"]
+
+    # ── Admin: org-wide attendance observer view ──────────────────────────────
+    if current_user["role"] == "admin":
+        from app.services.hierarchy_service import get_org_attendance_today
+        admin_attendance = get_org_attendance_today(db)
+        return templates.TemplateResponse(
+            "attendance/index.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "today": None,
+                "history": [],
+                "breaks": [],
+                "active_break": None,
+                "date_from": date_from or "",
+                "date_to": date_to or "",
+                "late_hour": _LATE_HOUR,
+                "late_minute": _LATE_MINUTE,
+                "admin_attendance": admin_attendance,
+                "manager_team_attendance": None,
+                "tl_team_attendance": None,
+            },
+        )
+
+    # ── Non-admin: existing personal view ────────────────────────────────────
     today_record = get_today_record(db, emp_id)
     breaks = get_today_breaks(db, emp_id)
     active_break = get_active_break(db, emp_id)
@@ -48,6 +73,25 @@ def attendance_page(
 
     history = get_attendance_history(db, emp_id, date_from=df, date_to=dt)
 
+    # ── Manager & Team Lead: fetch their team's attendance today ──────────────
+    manager_team_attendance = None
+    tl_team_attendance = None
+    
+    if current_user["role"] == "manager":
+        from app.services.hierarchy_service import get_manager_team_attendance_today
+        try:
+            manager_team_attendance = get_manager_team_attendance_today(db, emp_id)
+        except Exception:
+            manager_team_attendance = []
+            
+    if current_user["role"] == "team_lead":
+        from app.services.hierarchy_service import get_team_lead_team_attendance_today
+        try:
+            tl_data = get_team_lead_team_attendance_today(db, emp_id)
+            tl_team_attendance = tl_data.get("rows", []) if isinstance(tl_data, dict) else []
+        except Exception:
+            tl_team_attendance = None
+
     return templates.TemplateResponse(
         "attendance/index.html",
         {
@@ -62,6 +106,9 @@ def attendance_page(
             "late_hour": _LATE_HOUR,
             "late_minute": _LATE_MINUTE,
             "error": None,
+            "admin_attendance": None,
+            "manager_team_attendance": manager_team_attendance,
+            "tl_team_attendance": tl_team_attendance,
         },
     )
 
@@ -73,6 +120,9 @@ def do_clock_in(
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
+    if current_user["role"] == "admin":
+        raise HTTPException(status_code=403, detail="Admins cannot perform this action")
+
     try:
         clock_in(db, current_user["user_id"], work_mode)
     except AttendanceError:
@@ -86,6 +136,9 @@ def do_clock_out(
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
+    if current_user["role"] == "admin":
+        raise HTTPException(status_code=403, detail="Admins cannot perform this action")
+
     try:
         clock_out(db, current_user["user_id"])
     except AttendanceError:
@@ -99,6 +152,9 @@ def do_start_break(
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
+    if current_user["role"] == "admin":
+        raise HTTPException(status_code=403, detail="Admins cannot perform this action")
+
     try:
         start_break(db, current_user["user_id"])
     except BreakError:
@@ -112,6 +168,9 @@ def do_end_break(
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
+    if current_user["role"] == "admin":
+        raise HTTPException(status_code=403, detail="Admins cannot perform this action")
+
     try:
         end_break(db, current_user["user_id"])
     except BreakError:

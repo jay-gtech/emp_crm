@@ -1,5 +1,5 @@
 from datetime import date
-from fastapi import APIRouter, Request, Form, Depends
+from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -71,6 +71,9 @@ def apply_leave_post(
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
+    if current_user["role"] == "admin":
+        raise HTTPException(status_code=403, detail="Admin cannot apply leave")
+
     try:
         sd = date.fromisoformat(start_date)
         ed = date.fromisoformat(end_date)
@@ -109,6 +112,12 @@ def review_leave_post(
     db: Session = Depends(get_db),
     current_user: dict = Depends(role_required("admin", "manager", "team_lead")),
 ):
+    # Scope check: non-admin reviewers can only act on leaves within their hierarchy
+    if current_user["role"] != "admin" and is_user_in_scope:
+        from app.models.leave import Leave as LeaveModel
+        leave_record = db.query(LeaveModel).filter(LeaveModel.id == leave_id).first()
+        if leave_record and not is_user_in_scope(db, current_user, leave_record.employee_id):
+            raise HTTPException(status_code=403, detail="This leave request is outside your scope")
     try:
         updated = review_leave(db, leave_id, current_user["user_id"], action, note or None)
 

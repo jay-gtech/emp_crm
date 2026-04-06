@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}AI Monitoring — Employee CRM{% endblock %}
+{% block page_title %}AI Assignment Monitor{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --an-blue:    #2563eb;
+    --an-indigo:  #4f46e5;
+    --an-green:   #16a34a;
+    --an-amber:   #d97706;
+    --an-rose:    #e11d48;
+    --an-teal:    #0d9488;
+    --an-purple:  #7c3aed;
+    --card-radius: 14px;
+    --card-shadow: 0 2px 12px rgba(0,0,0,.07);
+  }
+
+  .an-page { display: flex; flex-direction: column; gap: 28px; padding: 4px 0 40px; }
+
+  /* alert banner */
+  .ai-alert-banner {
+    display: none;
+    background: #fff7ed; border: 1px solid #fed7aa;
+    color: #92400e; border-radius: 10px;
+    padding: 12px 18px; font-size: 13px;
+  }
+  .ai-alert-banner.visible { display: block; }
+  .ai-alert-banner ul { margin: 6px 0 0 18px; padding: 0; }
+  .ai-alert-banner li { margin-bottom: 2px; }
+
+  /* nav tab */
+  .an-tab-row {
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 2px solid var(--gray-100);
+    padding-bottom: 10px; margin-bottom: -10px;
+  }
+  .an-tab {
+    font-size: 13px; font-weight: 600; color: var(--gray-500);
+    text-decoration: none; padding: 6px 14px; border-radius: 8px;
+    transition: background .15s, color .15s;
+  }
+  .an-tab:hover { background: var(--gray-50); color: var(--gray-800); }
+  .an-tab.active { background: var(--primary-light); color: var(--primary); }
+
+  /* KPI grid (reuse index.html tokens) */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+  }
+  .kpi-card {
+    background: #fff; border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow); padding: 20px 22px;
+    display: flex; flex-direction: column; gap: 6px;
+    position: relative; overflow: hidden;
+    transition: transform .18s, box-shadow .18s;
+  }
+  .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(0,0,0,.11); }
+  .kpi-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  }
+  .kpi-card.blue::before   { background: var(--an-blue); }
+  .kpi-card.green::before  { background: var(--an-green); }
+  .kpi-card.amber::before  { background: var(--an-amber); }
+  .kpi-card.rose::before   { background: var(--an-rose); }
+  .kpi-card.indigo::before { background: var(--an-indigo); }
+  .kpi-card.teal::before   { background: var(--an-teal); }
+  .kpi-icon  { font-size: 26px; line-height: 1; }
+  .kpi-value { font-size: 32px; font-weight: 800; line-height: 1; color: var(--gray-900); letter-spacing: -1px; }
+  .kpi-label { font-size: 12px; color: var(--gray-500); font-weight: 500; text-transform: uppercase; letter-spacing: .5px; }
+  .kpi-sub   { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
+
+  /* section title */
+  .an-section-title {
+    font-size: 15px; font-weight: 700; color: var(--gray-800);
+    display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+  }
+  .an-section-title .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: 600;
+    background: var(--primary-light); color: var(--primary);
+  }
+
+  /* chart cards */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 20px;
+  }
+  .chart-card {
+    background: #fff; border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow); padding: 22px 24px;
+    display: flex; flex-direction: column;
+  }
+  .chart-card-title {
+    font-size: 13px; font-weight: 700; color: var(--gray-700);
+    margin-bottom: 18px; display: flex; align-items: center; gap: 6px;
+  }
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* model health table */
+  .model-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .model-table th {
+    text-align: left; padding: 8px 12px;
+    background: var(--gray-50); color: var(--gray-500);
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .model-table td { padding: 10px 12px; border-bottom: 1px solid var(--gray-50); vertical-align: middle; }
+  .model-table tr:last-child td { border-bottom: none; }
+  .model-table tr:hover td { background: var(--gray-50); }
+  .status-pill {
+    font-size: 10px; font-weight: 600; padding: 2px 8px;
+    border-radius: 99px; text-transform: capitalize;
+  }
+  .status-pill.active    { background: #d1fae5; color: #065f46; }
+  .status-pill.archived  { background: #e0e7ff; color: #3730a3; }
+  .status-pill.rejected  { background: #fee2e2; color: #991b1b; }
+  .status-pill.candidate { background: #fef9c3; color: #713f12; }
+
+  /* assignments table */
+  .assign-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .assign-table th {
+    text-align: left; padding: 8px 12px;
+    background: var(--gray-50); color: var(--gray-500);
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .assign-table td { padding: 10px 12px; border-bottom: 1px solid var(--gray-50); }
+  .assign-table tr:last-child td { border-bottom: none; }
+  .assign-table tr:hover td { background: var(--gray-50); }
+  .tag-chip {
+    display: inline-block; font-size: 10px; font-weight: 600;
+    padding: 2px 7px; border-radius: 99px; margin: 1px;
+    background: var(--primary-light); color: var(--primary);
+  }
+
+  /* last-updated chip */
+  .an-updated-chip {
+    font-size: 11px; color: var(--gray-400);
+    display: flex; align-items: center; gap: 4px; margin-left: auto;
+  }
+
+  /* skeleton */
+  .an-skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e8ff 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: an-shimmer 1.4s infinite;
+    border-radius: 8px; height: 32px;
+  }
+  @keyframes an-shimmer { to { background-position: -200% 0; } }
+
+  /* data quality warnings */
+  .dq-warn {
+    background: #fffbeb; border: 1px solid #fde68a;
+    color: #78350f; border-radius: 8px;
+    padding: 10px 14px; font-size: 12px; margin-top: 8px;
+  }
+  .dq-warn ul { margin: 4px 0 0 16px; padding: 0; }
+
+  @media (max-width: 700px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .kpi-grid   { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+
+<div class="an-page">
+
+  <!-- Tab navigation -->
+  <div class="an-tab-row">
+    <a href="/analytics/" class="an-tab">HR Analytics</a>
+    <a href="/analytics/ai" class="an-tab active">AI Monitoring</a>
+    <span class="an-updated-chip" id="ai-updated-chip">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span id="ai-updated-text">Loading…</span>
+    </span>
+  </div>
+
+  <!-- Alert banner -->
+  <div class="ai-alert-banner" id="ai-alert-banner">
+    <strong>AI System Alerts</strong>
+    <ul id="ai-alert-list"></ul>
+  </div>
+
+  <!-- KPI cards -->
+  <section>
+    <div class="an-section-title">
+      System Metrics
+      <span class="badge" id="ai-model-badge">loading</span>
+    </div>
+    <div class="kpi-grid" id="ai-kpi-grid">
+      <div class="an-skeleton" style="height:110px"></div>
+      <div class="an-skeleton" style="height:110px"></div>
+      <div class="an-skeleton" style="height:110px"></div>
+      <div class="an-skeleton" style="height:110px"></div>
+      <div class="an-skeleton" style="height:110px"></div>
+      <div class="an-skeleton" style="height:110px"></div>
+    </div>
+  </section>
+
+  <!-- Charts row 1: outcome pie + workload bar -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-card-title">Assignment Outcomes</div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="chart-outcomes"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">Workload Distribution (active tasks)</div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="chart-workload"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts row 2: reason tags + ML prob histogram -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-card-title">Reason Tag Frequency</div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="chart-reason-tags"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">ML Probability Distribution</div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="chart-ml-prob"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model registry -->
+  <section>
+    <div class="an-section-title">Model Registry</div>
+    <div class="chart-card">
+      <div id="model-registry-wrap">
+        <div class="an-skeleton" style="height:80px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Recent assignments table -->
+  <section>
+    <div class="an-section-title">
+      Recent AI Assignments
+      <span class="badge" id="ai-assign-count">—</span>
+    </div>
+    <div class="chart-card" style="padding:0; overflow:hidden;">
+      <div id="ai-assign-table-wrap" style="overflow-x:auto">
+        <div class="an-skeleton" style="height:160px; border-radius:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Inference latency + data quality -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-card-title">Inference Latency</div>
+      <div id="latency-wrap">
+        <div class="an-skeleton" style="height:80px"></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">Data Quality</div>
+      <div id="dq-wrap">
+        <div class="an-skeleton" style="height:80px"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- AI analytics JS -->
+<script src="/static/js/analytics.js"></script>
+{% endblock %}

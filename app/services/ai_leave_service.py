@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.models.leave import Leave, LeaveStatus
 
-def get_leave_predictions(db: Session, request_user: dict | None = None) -> dict:
+def get_leave_predictions(db: Session, _request_user: dict | None = None) -> dict:
     """
     Returns a dictionary of:
     - predictions: list of employee prediction objects
@@ -46,17 +46,21 @@ def get_leave_predictions(db: Session, request_user: dict | None = None) -> dict
         gap = 999.0
         
         for L in emp_leaves:
-            sum_durations += L.total_days
+            # Guard: skip records with missing end_date (can't compute recency)
+            if L.end_date is None:
+                continue
+            days = L.total_days or 0
+            sum_durations += days
             delta = (now - L.end_date).days
-            
+
             # Recency
             if delta < gap:
                 gap = delta
-                
+
             if delta <= 30:
-                leaves_last_30 += L.total_days
+                leaves_last_30 += days
             if delta <= 90:
-                leaves_last_90 += L.total_days
+                leaves_last_90 += days
                 
         avg_dur = (sum_durations / total_leaves) if total_leaves > 0 else 0.0
         

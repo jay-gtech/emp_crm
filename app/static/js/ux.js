@@ -483,6 +483,9 @@
     { label: 'Attendance', url: '/attendance/', icon: '🕐' },
     { label: 'Employees', url: '/employees/', icon: '👥' },
     { label: 'Analytics', url: '/analytics/', icon: '📈' },
+    { label: 'Announcements', url: '/announcements/', icon: '📢' },
+    { label: 'Meetings', url: '/meetings/', icon: '🤝' },
+    { label: 'Chat', url: '/chat/', icon: '💬' },
     { label: 'Profile Settings', url: '#', icon: '⚙️' },
     { label: 'Logout', url: '/auth/logout', icon: '🚪' }
   ];

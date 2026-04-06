@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum, DateTime, func, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Enum, DateTime, func, ForeignKey
 from app.core.database import Base
 import enum
 
@@ -21,5 +21,7 @@ class User(Base):
     department = Column(String(100), nullable=True)
     manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     team_lead_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    team_name = Column(String(100), nullable=True)          # logical team label
+    performance_score = Column(Float, nullable=True)         # 0–100; used by ML scorer
     is_active = Column(Integer, default=1)  # 1=active, 0=inactive
     created_at = Column(DateTime, server_default=func.now())

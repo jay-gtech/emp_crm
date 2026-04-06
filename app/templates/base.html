@@ -90,6 +90,16 @@
       <a class="nav-link {% if request.url.path.startswith('/analytics') %}active{% endif %}" href="/analytics/">
         <span class="icon">📈</span> Analytics
       </a>
+      <div class="nav-section-title">Communication</div>
+      <a class="nav-link {% if request.url.path.startswith('/announcements') %}active{% endif %}" href="/announcements/">
+        <span class="icon">📢</span> Announcements
+      </a>
+      <a class="nav-link {% if request.url.path.startswith('/meetings') %}active{% endif %}" href="/meetings/">
+        <span class="icon">🤝</span> Meetings
+      </a>
+      <a class="nav-link {% if request.url.path.startswith('/chat') %}active{% endif %}" href="/chat/">
+        <span class="icon">💬</span> Chat
+      </a>
       {% if current_user and current_user.role in ('admin', 'manager') %}
       <div class="nav-section-title">Management</div>
       <a class="nav-link {% if request.url.path.startswith('/employees') %}active{% endif %}" href="/employees/">

@@ -7,6 +7,9 @@ from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.leave import Leave, LeaveType, LeaveStatus
 from app.models.notification import Notification
 from app.models.audit_log import AuditLog, AuditAction
+from app.models.announcement import Announcement
+from app.models.meeting import Meeting
+from app.models.message import Message
 
 __all__ = [
     "User", "UserRole",
@@ -16,4 +19,7 @@ __all__ = [
     "Leave", "LeaveType", "LeaveStatus",
     "Notification",
     "AuditLog", "AuditAction",
+    "Announcement",
+    "Meeting",
+    "Message",
 ]

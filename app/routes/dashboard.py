@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -52,10 +53,13 @@ def dashboard(
     role = current_user["role"]
 
     # ── Existing data (unchanged) ────────────────────────────────────────────
-    today_attendance = get_today_record(db, uid)
-    active_break = get_active_break(db, uid)
-    today_breaks = get_today_breaks(db, uid)
-    leave_balance = get_leave_balance(db, uid)
+    if role == "admin":
+        today_attendance, active_break, today_breaks, leave_balance = None, None, [], {}
+    else:
+        today_attendance = get_today_record(db, uid)
+        active_break = get_active_break(db, uid)
+        today_breaks = get_today_breaks(db, uid)
+        leave_balance = get_leave_balance(db, uid)
 
     if role == "admin":
         tasks = list_all_tasks(db)
@@ -78,7 +82,30 @@ def dashboard(
         "completed": sum(1 for t in tasks if t.status == TaskStatus.completed),
     }
 
-    recent_history = get_attendance_history(db, uid, limit=7)
+    if role == "admin":
+        recent_history = []
+    else:
+        recent_history = get_attendance_history(db, uid, limit=7)
+
+    manager_hierarchy = []
+    if role == "manager":
+        from app.services.hierarchy_service import get_manager_team
+        team_list = get_manager_team(db, uid)
+        team_leads = [u for u in team_list if u.role.value == "team_lead"]
+        employees = [u for u in team_list if u.role.value == "employee"]
+        for tl in team_leads:
+            manager_hierarchy.append({
+                "name": tl.name,
+                "employees": [e.name for e in employees if e.team_lead_id == tl.id]
+            })
+
+    full_hierarchy = []
+    if role == "admin":
+        from app.services.hierarchy_service import get_full_hierarchy
+        try:
+            full_hierarchy = get_full_hierarchy(db)
+        except Exception:
+            full_hierarchy = []
 
     # ── New performance / insight data (each guarded independently) ──────────
     performance: dict = {}
@@ -90,10 +117,11 @@ def dashboard(
     task_distribution: dict = {}
 
     if _DASHBOARD_SERVICE_OK:
-        try:
-            performance = get_employee_performance(db, uid)
-        except Exception:
-            performance = {}
+        if role != "admin":
+            try:
+                performance = get_employee_performance(db, uid)
+            except Exception:
+                performance = {}
 
         if role in ("admin", "manager", "team_lead"):
             try:
@@ -162,11 +190,16 @@ def dashboard(
             "manager_insights": manager_insights,
             "alerts": alerts,
             # ── new manager-view keys ──
+            "manager_hierarchy": manager_hierarchy,
             "team_performance": team_performance,
             "low_performers": low_performers,
             "task_distribution": task_distribution,
             # ── AI suggestions ──
             "ai_suggestions": ai_suggestions,
             "leave_predictions": leave_predictions,
+            # ── admin full org hierarchy ──
+            "full_hierarchy": full_hierarchy,
+            # ── time context for greeting ──
+            "now": datetime.now(),
         },
     )

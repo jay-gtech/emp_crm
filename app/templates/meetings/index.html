@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Meetings — Employee CRM{% endblock %}
+{% block page_title %}Meetings{% endblock %}
+{% block content %}
+
+<div style="max-width:860px;">
+
+  <!-- ── Schedule form (admin / manager / team_lead only) ────────────────────────── -->
+  {% if current_user.role in ['admin', 'manager', 'team_lead'] %}
+  <div class="card" style="margin-bottom:24px; border-left:4px solid var(--primary);">
+    <div class="card-header">
+      <h2 style="font-size:15px;">📅 Schedule a Meeting</h2>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/meetings/create"
+            style="display:flex; flex-direction:column; gap:12px;">
+        <div>
+          <label class="form-label">Title</label>
+          <input type="text" name="title" class="form-control"
+                 placeholder="Meeting title…" required>
+        </div>
+        <div>
+          <label class="form-label">Participant <span class="text-muted">(Required)</span></label>
+          <select name="participant_id" class="form-control" required>
+            <option value="" disabled selected>Select participant...</option>
+            {% for u in filtered_users %}
+            <option value="{{ u.id }}">{{ u.name }} ({{ u.role.value | capitalize }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Agenda / Description <span class="text-muted">(optional)</span></label>
+          <textarea name="description" class="form-control" rows="2"
+                    placeholder="Agenda, topics to cover…"></textarea>
+        </div>
+        <div>
+          <label class="form-label">Date &amp; Time</label>
+          <input type="datetime-local" name="scheduled_time" class="form-control"
+                 style="max-width:280px;" required>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Schedule Meeting</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Meeting list ────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h2 style="font-size:15px;">📋 Scheduled Meetings</h2>
+      <span class="text-muted text-sm">{{ meetings | length }} visible to you</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+
+      {% if meetings %}
+      <div style="display:flex; flex-direction:column;">
+        {% for m in meetings %}
+        {% set is_future = m.scheduled_time > now if now is defined else true %}
+        <div style="padding:18px 20px; border-bottom:1px solid var(--gray-100);">
+
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;
+                      gap:12px; flex-wrap:wrap; margin-bottom:6px;">
+            <h3 style="margin:0; font-size:15px; font-weight:700; color:var(--gray-900);">
+              {{ m.title }}
+            </h3>
+            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              <span class="badge
+                {% if m.creator_role == 'manager' %}badge-info{% else %}badge-gray{% endif %}"
+                style="font-size:10px; text-transform:capitalize;">
+                {{ m.creator_role.replace('_', ' ') }}
+              </span>
+              <span style="font-size:12px; font-weight:600; color:var(--primary);">
+                📅 {{ m.scheduled_time.strftime('%b %d, %Y · %I:%M %p') }}
+              </span>
+            </div>
+          </div>
+
+          {% if m.description %}
+          <p style="margin:0 0 6px 0; font-size:13.5px; color:var(--gray-700);
+                    line-height:1.55; white-space:pre-line;">{{ m.description }}</p>
+          {% else %}
+          <p style="margin:0 0 6px 0; font-size:13px; color:var(--gray-400);">
+            No description provided.
+          </p>
+          {% endif %}
+
+          <div style="font-size:11px; color:var(--gray-500);">
+            Scheduled by: <strong>{{ m.creator_role.replace('_', ' ').title() }}</strong>
+            &nbsp;·&nbsp; Created {{ m.created_at.strftime('%b %d, %Y') }}
+          </div>
+
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="padding:48px 20px; text-align:center;">
+        <div style="font-size:40px; margin-bottom:10px;">📭</div>
+        <p class="text-muted" style="margin:0;">No meetings scheduled for you right now.</p>
+        {% if current_user.role in ['admin', 'manager', 'team_lead'] %}
+        <p class="text-muted text-sm" style="margin-top:6px;">
+          Use the form above to schedule your first meeting.
+        </p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

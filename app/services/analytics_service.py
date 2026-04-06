@@ -15,6 +15,7 @@ import logging
 from collections import defaultdict
 from datetime import date, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -345,6 +346,7 @@ def get_team_comparison(db: Session) -> list[dict]:
                 )
 
                 result.append({
+                    "user_id": u.id,
                     "name": u.name,
                     "role": u.role.value if hasattr(u.role, "value") else str(u.role),
                     "task_completion_rate": rate,
@@ -384,10 +386,16 @@ def get_summary_kpis(db: Session) -> dict:
 
         total_employees = db.query(User).filter(User.is_active == 1).count()
 
+        # Deduplicate by employee_id and require a clock-in so the count
+        # never exceeds total_employees (guards against duplicate records
+        # or attendance rows for inactive users).
         present_today = (
-            db.query(Attendance)
-            .filter(Attendance.date == date.today())
-            .count()
+            db.query(func.count(func.distinct(Attendance.employee_id)))
+            .filter(
+                Attendance.date == date.today(),
+                Attendance.clock_in_time.isnot(None),
+            )
+            .scalar() or 0
         )
 
         open_tasks = (
@@ -433,4 +441,417 @@ def get_summary_kpis(db: Session) -> dict:
             "pending_leaves": 0,
             "avg_task_completion": 0.0,
             "attendance_rate": 0.0,
+        }
+
+
+# ---------------------------------------------------------------------------
+# AI / ML monitoring helpers
+# ---------------------------------------------------------------------------
+
+def _load_assignment_log() -> list[dict]:
+    """
+    Read assignment_log.jsonl and return all valid JSON lines.
+    Returns [] on any I/O error.
+    """
+    try:
+        from app.ml.retraining.utils import LOG_FILE
+        if not LOG_FILE.exists():
+            return []
+        lines = []
+        with LOG_FILE.open(encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    import json
+                    lines.append(json.loads(raw))
+                except Exception:
+                    continue
+        return lines
+    except Exception as exc:
+        logger.error("analytics._load_assignment_log failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 7. AI System Metrics  (success rate, delay rate, avg ML probability, etc.)
+# ---------------------------------------------------------------------------
+
+def get_ai_system_metrics() -> dict:
+    """
+    Aggregate ML-assignment health KPIs from the assignment log.
+
+    Deduplicates by task_id (takes last assignment event per task).
+    Outcome labels come from 'outcome' and 'outcome_update' events.
+
+    Shape:
+        {
+          "total_assignments": 42,
+          "success_rate":      0.85,
+          "delay_rate":        0.10,
+          "avg_ml_prob":       0.74,
+          "avg_final_score":   83.2,
+          "model_available":   true,
+          "alerts":            [],
+        }
+    """
+    try:
+        lines = _load_assignment_log()
+
+        # Deduplicate: keep last assignment record per task_id
+        assignments: dict[int, dict] = {}
+        outcomes: dict[int, dict] = {}   # task_id → {success, was_delayed}
+
+        for rec in lines:
+            etype = rec.get("event_type", "")
+            tid   = rec.get("task_id")
+            if tid is None:
+                continue
+
+            if etype == "assignment":
+                assignments[tid] = rec
+
+            elif etype == "outcome":
+                outcomes[tid] = {
+                    "success":     bool(rec.get("success", False)),
+                    "was_delayed": (rec.get("delay_days", -1) or 0) > 0,
+                }
+
+            elif etype == "outcome_update":
+                out = rec.get("outcome", {})
+                outcomes[tid] = {
+                    "success":     bool(out.get("completed", False)) and not bool(out.get("was_delayed", False)),
+                    "was_delayed": bool(out.get("was_delayed", False)),
+                }
+
+        total = len(assignments)
+        if total == 0:
+            return {
+                "total_assignments": 0,
+                "success_rate":      None,
+                "delay_rate":        None,
+                "avg_ml_prob":       None,
+                "avg_final_score":   None,
+                "model_available":   False,
+                "alerts":            [],
+            }
+
+        # Outcome stats — only from tasks that have a recorded outcome
+        successes  = sum(1 for o in outcomes.values() if o["success"])
+        delayed    = sum(1 for o in outcomes.values() if o["was_delayed"])
+        n_outcomes = len(outcomes)
+        success_rate = round(successes / n_outcomes, 4) if n_outcomes else None
+        delay_rate   = round(delayed   / n_outcomes, 4) if n_outcomes else None
+
+        # ML probability and final score averages (from assignment records)
+        ml_probs     = [r.get("ml_probability") for r in assignments.values() if r.get("ml_probability") is not None]
+        final_scores = [r.get("final_score")    for r in assignments.values() if r.get("final_score")    is not None]
+        avg_ml_prob    = round(sum(ml_probs)     / len(ml_probs),     4) if ml_probs     else None
+        avg_final_score= round(sum(final_scores) / len(final_scores), 2) if final_scores else None
+
+        # Model availability
+        try:
+            from app.ml.training.model import is_model_available
+            model_available = is_model_available()
+        except Exception:
+            model_available = False
+
+        # Alerts
+        alerts: list[str] = []
+        if success_rate is not None and success_rate < 0.6:
+            alerts.append(f"Low success rate: {success_rate:.0%} (threshold 60%)")
+        if delay_rate is not None and delay_rate > 0.3:
+            alerts.append(f"High delay rate: {delay_rate:.0%} (threshold 30%)")
+        if not model_available:
+            alerts.append("ML model not trained — assignments using heuristic fallback")
+
+        return {
+            "total_assignments": total,
+            "success_rate":      success_rate,
+            "delay_rate":        delay_rate,
+            "avg_ml_prob":       avg_ml_prob,
+            "avg_final_score":   avg_final_score,
+            "model_available":   model_available,
+            "alerts":            alerts,
+        }
+
+    except Exception as exc:
+        logger.error("analytics.get_ai_system_metrics failed: %s", exc)
+        return {
+            "total_assignments": 0,
+            "success_rate":      None,
+            "delay_rate":        None,
+            "avg_ml_prob":       None,
+            "avg_final_score":   None,
+            "model_available":   False,
+            "alerts":            [f"Error loading metrics: {exc}"],
+        }
+
+
+# ---------------------------------------------------------------------------
+# 8. Workload Distribution  (per-employee active task count from log)
+# ---------------------------------------------------------------------------
+
+def get_workload_distribution(db) -> dict:
+    """
+    Return per-employee task counts from the DB (assigned, completed, overdue).
+
+    Shape:
+        {
+          "employees": ["Alice", "Bob", ...],
+          "active":    [3, 1, ...],
+          "completed": [8, 5, ...],
+          "overdue":   [0, 1, ...],
+        }
+    """
+    try:
+        Attendance, Task, TaskStatus, Leave, LeaveStatus, _, User = _models()
+        today = date.today()
+
+        users = db.query(User).filter(User.is_active == 1).all()
+        names, active, completed, overdue = [], [], [], []
+
+        for u in users:
+            tasks = db.query(Task).filter(Task.assigned_to == u.id).all()
+            n_completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
+            n_active    = sum(1 for t in tasks if t.status != TaskStatus.completed)
+            n_overdue   = sum(
+                1 for t in tasks
+                if t.status != TaskStatus.completed and t.due_date and t.due_date < today
+            )
+            names.append(u.name)
+            active.append(n_active)
+            completed.append(n_completed)
+            overdue.append(n_overdue)
+
+        # Sort by active desc
+        order = sorted(range(len(names)), key=lambda i: active[i], reverse=True)
+        return {
+            "employees": [names[i]     for i in order],
+            "active":    [active[i]    for i in order],
+            "completed": [completed[i] for i in order],
+            "overdue":   [overdue[i]   for i in order],
+        }
+
+    except Exception as exc:
+        logger.error("analytics.get_workload_distribution failed: %s", exc)
+        return {"employees": [], "active": [], "completed": [], "overdue": []}
+
+
+# ---------------------------------------------------------------------------
+# 9. Model Registry Metrics  (from metadata.json)
+# ---------------------------------------------------------------------------
+
+def get_model_registry_metrics() -> dict:
+    """
+    Read metadata.json from the retraining package and return model history.
+
+    Shape:
+        {
+          "current_version": "v2",
+          "total_versions":  3,
+          "versions": [
+            {
+              "version": "v2",
+              "status": "active",
+              "auc": 0.87,
+              "accuracy": 0.91,
+              "trained_at": "2026-04-02T10:00:00",
+            },
+            ...
+          ],
+        }
+    """
+    try:
+        import json
+        from app.ml.retraining.utils import METADATA_FILE
+        if not METADATA_FILE.exists():
+            return {"current_version": None, "total_versions": 0, "versions": []}
+
+        meta = json.loads(METADATA_FILE.read_text(encoding="utf-8"))
+        current = meta.get("current_version")
+        models  = meta.get("models", {})
+
+        versions = []
+        for v, entry in sorted(models.items()):
+            m = entry.get("metrics", {})
+            versions.append({
+                "version":    v,
+                "status":     entry.get("status", "?"),
+                "auc":        m.get("auc", 0.0),
+                "accuracy":   m.get("accuracy", 0.0),
+                "f1":         m.get("f1", 0.0),
+                "trained_at": (entry.get("trained_at") or "")[:19],
+                "n_train":    entry.get("train_meta", {}).get("n_train"),
+            })
+
+        return {
+            "current_version": current,
+            "total_versions":  len(models),
+            "versions":        versions,
+        }
+
+    except Exception as exc:
+        logger.error("analytics.get_model_registry_metrics failed: %s", exc)
+        return {"current_version": None, "total_versions": 0, "versions": []}
+
+
+# ---------------------------------------------------------------------------
+# 10. Reason Tag Distribution  (from assignment log)
+# ---------------------------------------------------------------------------
+
+def get_reason_tag_distribution() -> dict:
+    """
+    Count how often each reason_tag appears across deduplicated assignment events.
+
+    Shape:
+        {
+          "tags":   ["high_ml_confidence", "low_workload", ...],
+          "counts": [34, 28, ...],
+        }
+    """
+    try:
+        lines = _load_assignment_log()
+
+        # Deduplicate by task_id (last wins) then collect tags
+        last_assignment: dict[int, dict] = {}
+        for rec in lines:
+            if rec.get("event_type") == "assignment":
+                tid = rec.get("task_id")
+                if tid is not None:
+                    last_assignment[tid] = rec
+
+        tag_counts: dict[str, int] = defaultdict(int)
+        for rec in last_assignment.values():
+            for tag in (rec.get("reason_tags") or []):
+                tag_counts[str(tag)] += 1
+
+        # Sort by count desc
+        ordered = sorted(tag_counts.items(), key=lambda x: -x[1])
+        return {
+            "tags":   [t for t, _ in ordered],
+            "counts": [c for _, c in ordered],
+        }
+
+    except Exception as exc:
+        logger.error("analytics.get_reason_tag_distribution failed: %s", exc)
+        return {"tags": [], "counts": []}
+
+
+# ---------------------------------------------------------------------------
+# 11. Recent AI Assignments  (last N deduplicated assignment records)
+# ---------------------------------------------------------------------------
+
+def get_recent_ai_assignments(limit: int = 20) -> list[dict]:
+    """
+    Return the most recent deduplicated assignment events for the activity table.
+
+    Shape (list of dicts):
+        [
+          {
+            "task_id":      53,
+            "employee_id":  27,
+            "final_score":  97.3,
+            "ml_prob":      0.986,
+            "reason_tags":  ["low_workload", ...],
+            "timestamp":    "2026-04-02T09:44:16",
+          },
+          ...
+        ]
+    """
+    try:
+        lines = _load_assignment_log()
+
+        # Keep last assignment per task_id
+        last_assignment: dict[int, dict] = {}
+        for rec in lines:
+            if rec.get("event_type") == "assignment":
+                tid = rec.get("task_id")
+                if tid is not None:
+                    last_assignment[tid] = rec
+
+        # Sort by timestamp desc
+        records = sorted(
+            last_assignment.values(),
+            key=lambda r: r.get("timestamp", ""),
+            reverse=True,
+        )[:limit]
+
+        result = []
+        for r in records:
+            result.append({
+                "task_id":     r.get("task_id"),
+                "employee_id": r.get("employee_id"),
+                "final_score": r.get("final_score") or r.get("score"),
+                "ml_prob":     r.get("ml_probability"),
+                "reason_tags": r.get("reason_tags") or [],
+                "timestamp":   (r.get("timestamp") or "")[:19],
+            })
+        return result
+
+    except Exception as exc:
+        logger.error("analytics.get_recent_ai_assignments failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 12. Data Quality Check
+# ---------------------------------------------------------------------------
+
+def get_data_quality_check() -> dict:
+    """
+    Sanity checks on the assignment log for the monitoring dashboard.
+
+    Shape:
+        {
+          "total_log_lines": 120,
+          "assignment_events": 60,
+          "outcome_events": 12,
+          "duplicate_task_ids": 5,
+          "missing_ml_prob": 3,
+          "warnings": ["5 tasks have duplicate assignment entries"],
+        }
+    """
+    try:
+        lines = _load_assignment_log()
+
+        assignment_lines   = [l for l in lines if l.get("event_type") == "assignment"]
+        outcome_lines      = [l for l in lines if l.get("event_type") in ("outcome", "outcome_update")]
+
+        # Count raw task_id occurrences
+        from collections import Counter
+        task_id_counts = Counter(r.get("task_id") for r in assignment_lines if r.get("task_id") is not None)
+        duplicate_tids = sum(1 for c in task_id_counts.values() if c > 1)
+
+        # Missing ml_probability in newer-format records
+        missing_ml = sum(
+            1 for r in assignment_lines
+            if r.get("ml_probability") is None and r.get("rule_score") is not None
+        )
+
+        warnings: list[str] = []
+        if duplicate_tids:
+            warnings.append(f"{duplicate_tids} task(s) have duplicate assignment entries (last used)")
+        if missing_ml:
+            warnings.append(f"{missing_ml} assignment(s) missing ml_probability field")
+
+        return {
+            "total_log_lines":   len(lines),
+            "assignment_events": len(assignment_lines),
+            "outcome_events":    len(outcome_lines),
+            "duplicate_task_ids": duplicate_tids,
+            "missing_ml_prob":   missing_ml,
+            "warnings":          warnings,
+        }
+
+    except Exception as exc:
+        logger.error("analytics.get_data_quality_check failed: %s", exc)
+        return {
+            "total_log_lines":    0,
+            "assignment_events":  0,
+            "outcome_events":     0,
+            "duplicate_task_ids": 0,
+            "missing_ml_prob":    0,
+            "warnings":           [f"Error: {exc}"],
         }

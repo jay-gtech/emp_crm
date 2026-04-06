@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Announcements — Employee CRM{% endblock %}
+{% block page_title %}Announcements{% endblock %}
+{% block content %}
+
+<div style="max-width:860px;">
+
+  <!-- ── Create form (admin / manager / team_lead only) ──────────────────── -->
+  {% if current_user.role in ['admin', 'manager', 'team_lead'] %}
+  <div class="card" style="margin-bottom:24px; border-left:4px solid var(--primary);">
+    <div class="card-header">
+      <h2 style="font-size:15px;">📢 Post an Announcement</h2>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/announcements/create"
+            style="display:flex; flex-direction:column; gap:12px;">
+        <div>
+          <label class="form-label">Title</label>
+          <input type="text" name="title" class="form-control"
+                 placeholder="Announcement title…" required>
+        </div>
+        <div>
+          <label class="form-label">Message</label>
+          <textarea name="message" class="form-control" rows="3"
+                    placeholder="Write your announcement here…" required></textarea>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Post Announcement</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Announcement list ───────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h2 style="font-size:15px;">📋 All Announcements</h2>
+      <span class="text-muted text-sm">{{ announcements | length }} visible to you</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+
+      {% if announcements %}
+      <div style="display:flex; flex-direction:column;">
+        {% for a in announcements %}
+        <div style="padding:18px 20px; border-bottom:1px solid var(--gray-100);"
+             class="announcement-row">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;
+                      gap:12px; flex-wrap:wrap; margin-bottom:6px;">
+            <h3 style="margin:0; font-size:15px; font-weight:700;
+                       color:var(--gray-900);">{{ a.title }}</h3>
+            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              <span class="badge
+                {% if a.sender_role == 'admin' %}badge-primary
+                {% elif a.sender_role == 'manager' %}badge-info
+                {% else %}badge-gray{% endif %}"
+                style="font-size:10px; text-transform:capitalize;">
+                {{ a.sender_role.replace('_', ' ') }}
+              </span>
+              <span style="font-size:11px; color:var(--gray-400);">
+                {{ a.created_at.strftime('%b %d, %Y · %I:%M %p') }}
+              </span>
+            </div>
+          </div>
+          <p style="margin:0; font-size:13.5px; color:var(--gray-700);
+                    line-height:1.55; white-space:pre-line;">{{ a.message }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="padding:48px 20px; text-align:center;">
+        <div style="font-size:40px; margin-bottom:10px;">📭</div>
+        <p class="text-muted" style="margin:0;">No announcements visible to you right now.</p>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

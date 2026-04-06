@@ -1,17 +1,40 @@
 import os
 from pathlib import Path
 
+# ── Load .env so os.getenv() picks up values from the file ───────────────────
+try:
+    from dotenv import load_dotenv
+    _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _ENV_FILE.exists():
+        load_dotenv(dotenv_path=_ENV_FILE, override=False)  # won't override real env vars
+except ImportError:
+    pass  # python-dotenv is optional; fall back to os defaults
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+_DEFAULT_SECRET = "change-this-super-secret-key-in-production"  # noqa: S105
+
 
 class Settings:
     APP_NAME: str = "Employee CRM"
     APP_VERSION: str = "1.0.0"
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-this-super-secret-key-in-production")
-    
-    ENV: str = os.getenv("ENV", "dev") # dev, test, prod
-    
+    SECRET_KEY: str = os.getenv("SECRET_KEY", _DEFAULT_SECRET)
+
+    ENV: str = os.getenv("ENV", "dev")  # dev | test | prod
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+
+    # Comma-separated allowed CORS origins (e.g. "https://crm.company.com")
+    # Defaults to * in dev, but must be set explicitly in production.
+    ALLOWED_ORIGINS: list[str] = [
+        o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+    ]
+
+    # Absolute-path SQLite URLs — data lives in the project root, not a temp dir
     _DATABASE_URL_DEFAULT: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR}/emp_crm.db")
     TEST_DATABASE_URL: str = os.getenv("TEST_DATABASE_URL", f"sqlite:///{BASE_DIR}/test_crm.db")
+
+    # ML readiness: set ML_LOGGING=true to enable extra audit/history tables
+    ML_LOGGING_ENABLED: bool = os.getenv("ML_LOGGING", "true").lower() == "true"
 
     @property
     def DATABASE_URL(self) -> str:

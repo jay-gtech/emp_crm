@@ -186,8 +186,9 @@ node_modules/
 *.sqlite3
 test_crm.db
 
-# CRM — ML training log (runtime-generated, not source)
+# CRM — ML training logs (runtime-generated, not source)
 app/ml/task_assistant/training_log.jsonl
+app/ml/auto_assignment/assignment_log.jsonl
 
 # Coverage output
 htmlcov/

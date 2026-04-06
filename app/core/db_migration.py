@@ -1,51 +1,92 @@
+"""
+db_migration.py — Safe, additive schema migrations for SQLite.
+
+Strategy
+────────
+• Uses ALTER TABLE … ADD COLUMN only (never DROP, never recreate).
+• Idempotent: checks PRAGMA table_info before each ALTER so re-runs are safe.
+• Logging only — no print() in library code; callers see output via the logger.
+
+Alembic readiness
+─────────────────
+When you are ready to switch to Alembic:
+  1. pip install alembic
+  2. alembic init alembic
+  3. Point alembic/env.py at app.core.database.Base and SQLALCHEMY_DATABASE_URL
+  4. alembic revision --autogenerate -m "initial"
+  5. alembic upgrade head
+  6. Remove apply_safe_migrations() from main.py on_startup once Alembic takes over.
+"""
 import logging
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
-def apply_safe_migrations(engine: Engine):
+# ── Migration registry ────────────────────────────────────────────────────────
+# Each entry:  (table, column, ALTER SQL)
+# Add new columns here — never remove old ones.
+_COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
+    (
+        "users",
+        "manager_id",
+        "ALTER TABLE users ADD COLUMN manager_id INTEGER;",
+    ),
+    (
+        "users",
+        "team_lead_id",
+        "ALTER TABLE users ADD COLUMN team_lead_id INTEGER;",
+    ),
+    (
+        "users",
+        "team_name",
+        "ALTER TABLE users ADD COLUMN team_name VARCHAR(100);",
+    ),
+    (
+        "users",
+        "performance_score",
+        "ALTER TABLE users ADD COLUMN performance_score FLOAT;",
+    ),
+    (
+        "notifications",
+        "audit_log_id",
+        "ALTER TABLE notifications ADD COLUMN audit_log_id INTEGER REFERENCES audit_logs(id);",
+    ),
+]
+
+
+def _existing_columns(conn, table: str) -> set[str]:
+    rows = conn.execute(text(f"PRAGMA table_info({table});")).fetchall()
+    return {row[1] for row in rows}
+
+
+def apply_safe_migrations(engine: Engine) -> None:
     """
-    Checks for missing columns in the 'users' table and adds them safely.
-    Ensures the application does not crash on DB schema mismatch.
+    Run all registered additive column migrations.
+    Safe to call on every startup — skips columns that already exist.
+    Never drops tables or columns.
     """
     try:
         with engine.begin() as conn:
-            # Check existing columns using SQLite PRAGMA
-            result = conn.execute(text("PRAGMA table_info(users);")).fetchall()
-            existing_columns = [row[1] for row in result]
-            
-            # 1. manager_id
-            if "manager_id" not in existing_columns:
-                try:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN manager_id INTEGER;"))
-                    print("manager_id column added")
-                except Exception as e:
-                    print(f"Failed to add manager_id: {e}")
-            else:
-                print("manager_id already exists")
-                
-            # 2. team_lead_id
-            if "team_lead_id" not in existing_columns:
-                try:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN team_lead_id INTEGER;"))
-                    print("team_lead_id column added")
-                except Exception as e:
-                    print(f"Failed to add team_lead_id: {e}")
-            else:
-                print("team_lead_id already exists")
+            # Cache column sets per table to avoid redundant PRAGMA calls
+            column_cache: dict[str, set[str]] = {}
 
-            # 3. audit_log_id
-            notif_info = conn.execute(text("PRAGMA table_info(notifications);")).fetchall()
-            notif_columns = [row[1] for row in notif_info]
-            if "audit_log_id" not in notif_columns:
-                try:
-                    conn.execute(text("ALTER TABLE notifications ADD COLUMN audit_log_id INTEGER REFERENCES audit_logs(id);"))
-                    print("audit_log_id column added")
-                except Exception as e:
-                    print(f"Failed to add audit_log_id: {e}")
-            else:
-                print("audit_log_id already exists")
+            for table, column, sql in _COLUMN_MIGRATIONS:
+                if table not in column_cache:
+                    column_cache[table] = _existing_columns(conn, table)
 
-    except Exception as e:
-        print(f"Migration skipped or failed: {e}")
+                if column in column_cache[table]:
+                    logger.debug("[migration] %s.%s already exists — skip.", table, column)
+                    continue
+
+                try:
+                    conn.execute(text(sql))
+                    column_cache[table].add(column)  # update cache
+                    logger.info("[migration] Added column %s.%s ✓", table, column)
+                except Exception as col_exc:
+                    logger.warning(
+                        "[migration] Could not add %s.%s: %s", table, column, col_exc
+                    )
+
+    except Exception as exc:
+        logger.error("[migration] apply_safe_migrations failed: %s", exc)

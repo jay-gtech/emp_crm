@@ -24,6 +24,8 @@ def get_today_record(db: Session, employee_id: int) -> Attendance | None:
 
 
 def clock_in(db: Session, employee_id: int, work_mode: str = "office") -> Attendance:
+    if _today().weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+        raise AttendanceError("Clock-in is not allowed on weekends.")
     existing = get_today_record(db, employee_id)
     if existing and existing.clock_in_time:
         raise AttendanceError("Already clocked in today.")

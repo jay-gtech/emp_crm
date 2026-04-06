@@ -4,9 +4,13 @@ import enum
 
 
 class TaskStatus(str, enum.Enum):
+    todo = "todo"
     pending = "pending"
     in_progress = "in_progress"
     completed = "completed"
+    pending_approval = "pending_approval"
+    approved = "approved"
+    rejected = "rejected"
 
 
 class TaskPriority(str, enum.Enum):
@@ -23,7 +27,7 @@ class Task(Base):
     description = Column(Text, nullable=True)
     assigned_to = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     assigned_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(Enum(TaskStatus), default=TaskStatus.pending, nullable=False)
+    status = Column(Enum(TaskStatus), default=TaskStatus.todo, nullable=False)
     priority = Column(Enum(TaskPriority), default=TaskPriority.medium, nullable=False)
     due_date = Column(Date, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

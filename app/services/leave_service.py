@@ -29,6 +29,27 @@ def apply_leave(
 
     total_days = _count_days(start_date, end_date)
 
+    # Enforce annual leave quota (pending + approved count against the balance)
+    current_year = start_date.year
+    existing = (
+        db.query(Leave)
+        .filter(
+            Leave.employee_id == employee_id,
+            Leave.status.in_([LeaveStatus.pending, LeaveStatus.approved]),
+            Leave.start_date >= date(current_year, 1, 1),
+            Leave.end_date <= date(current_year, 12, 31),
+        )
+        .all()
+    )
+    used_days = sum(l.total_days for l in existing)
+    quota = settings.LEAVE_ANNUAL_QUOTA
+    if used_days + total_days > quota:
+        remaining = max(quota - used_days, 0)
+        raise LeaveError(
+            f"Insufficient leave balance. You have {remaining} day(s) remaining "
+            f"out of the annual quota of {quota}."
+        )
+
     # Check for overlapping pending/approved leaves
     overlap = (
         db.query(Leave)

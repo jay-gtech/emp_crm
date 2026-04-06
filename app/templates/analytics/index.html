@@ -168,6 +168,12 @@
 
 <div class="an-page" id="anPage">
 
+  <!-- ── Tab navigation ── -->
+  <div style="display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--gray-100);padding-bottom:10px;margin-bottom:-10px">
+    <a href="/analytics/" style="font-size:13px;font-weight:600;padding:6px 14px;border-radius:8px;background:var(--primary-light);color:var(--primary);text-decoration:none">HR Analytics</a>
+    <a href="/analytics/ai" style="font-size:13px;font-weight:600;padding:6px 14px;border-radius:8px;color:var(--gray-500);text-decoration:none;transition:background .15s,color .15s" onmouseover="this.style.background='var(--gray-50)';this.style.color='var(--gray-800)'" onmouseout="this.style.background='';this.style.color='var(--gray-500)'">AI Monitoring</a>
+  </div>
+
   <!-- ── Error banner ── -->
   <div class="an-error" id="anError">
     ⚠️ Analytics data could not be loaded. Core system functionality is unaffected.
@@ -192,7 +198,8 @@
     </div>
   </section>
 
-  <!-- ── My Performance cards ── -->
+  <!-- ── My Performance cards (non-admin only) ── -->
+  {% if current_user.role != 'admin' %}
   <section>
     <div class="an-section-title">🧑‍💼 My Performance <span class="badge">This month</span></div>
     <div class="chart-card">
@@ -206,6 +213,7 @@
       </div>
     </div>
   </section>
+  {% endif %}
 
   <!-- ── Trend charts ── -->
   <section>
