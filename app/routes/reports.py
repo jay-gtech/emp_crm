@@ -10,8 +10,9 @@ RBAC matrix:
   View all           ❌         ❌           ✅
 """
 import logging
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -20,11 +21,13 @@ from app.core.auth import login_required, role_required
 from app.core.database import get_db
 from app.services.report_service import (
     ReportError,
+    enrich_eod_with_names,
     enrich_reports_with_names,
     get_all_eod_reports,
     get_all_reports,
     get_eod_reports,
     get_my_reports,
+    get_report_stats,
     get_team_reports,
     submit_eod_report,
     submit_hourly_report,
@@ -36,10 +39,12 @@ router    = APIRouter(prefix="/reports", tags=["reports"])
 templates = Jinja2Templates(directory="app/templates")
 
 # Role groups
-_REPORTER_ROLES = ("employee", "team_lead")          # can submit hourly
-_VIEWER_ROLES   = ("employee", "team_lead", "manager", "admin")
+_REPORTER_ROLES = ("employee", "team_lead")
 _TEAM_ROLES     = ("team_lead", "manager", "admin")
 _MANAGER_ROLES  = ("manager", "admin")
+
+# Allowed filter values — anything else treated as "all"
+_VALID_FILTERS = {"today", "week", "all"}
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +52,6 @@ _MANAGER_ROLES  = ("manager", "admin")
 # ---------------------------------------------------------------------------
 
 def _require_reporter(current_user: dict) -> None:
-    """Raise 403 if the user is not allowed to submit hourly reports."""
     if current_user.get("role") not in _REPORTER_ROLES:
         raise HTTPException(
             status_code=403,
@@ -56,12 +60,16 @@ def _require_reporter(current_user: dict) -> None:
 
 
 def _require_team_lead(current_user: dict) -> None:
-    """Raise 403 if the user is not a team lead."""
     if current_user.get("role") != "team_lead":
         raise HTTPException(
             status_code=403,
-            detail="Only team leads can perform this action.",
+            detail="Only team leads can submit EOD reports.",
         )
+
+
+def _clean_filter(f: str | None) -> str:
+    """Normalise a filter param; default to 'all'."""
+    return f if f in _VALID_FILTERS else "all"
 
 
 # ---------------------------------------------------------------------------
@@ -73,40 +81,48 @@ def reports_home(
     request: Request,
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
+    filter: str | None = Query(default=None),   # noqa: A002
+    tab: str | None    = Query(default=None),
 ):
-    role    = current_user.get("role")
-    uid     = current_user["user_id"]
-    flash   = request.query_params.get("flash")
-    error   = request.query_params.get("error")
+    role          = current_user.get("role")
+    uid           = current_user["user_id"]
+    flash         = request.query_params.get("flash")
+    error         = request.query_params.get("error")
+    active_filter = _clean_filter(filter)
 
-    my_reports   = get_my_reports(db, uid)
+    stats        = get_report_stats(db, uid)
+    my_reports   = get_my_reports(db, uid, date_filter=active_filter)
     team_reports: list = []
     eod_reports:  list = []
     all_reports:  list = []
     all_eod:      list = []
 
     if role == "team_lead":
-        team_raw     = get_team_reports(db, uid)
+        team_raw     = get_team_reports(db, uid, date_filter=active_filter)
         team_reports = enrich_reports_with_names(db, team_raw)
         eod_reports  = get_eod_reports(db, uid)
 
     elif role in _MANAGER_ROLES:
-        all_raw     = get_all_reports(db)
+        all_raw     = get_all_reports(db, date_filter=active_filter)
         all_reports = enrich_reports_with_names(db, all_raw)
-        all_eod     = get_all_eod_reports(db)
+        raw_eod     = get_all_eod_reports(db)
+        all_eod     = enrich_eod_with_names(db, raw_eod)
 
     return templates.TemplateResponse(
         "reports/index.html",
         {
-            "request":      request,
-            "current_user": current_user,
-            "my_reports":   my_reports,
-            "team_reports": team_reports,
-            "eod_reports":  eod_reports,
-            "all_reports":  all_reports,
-            "all_eod":      all_eod,
-            "flash":        flash,
-            "error":        error,
+            "request":       request,
+            "current_user":  current_user,
+            "stats":         stats,
+            "my_reports":    my_reports,
+            "team_reports":  team_reports,
+            "eod_reports":   eod_reports,
+            "all_reports":   all_reports,
+            "all_eod":       all_eod,
+            "active_filter": active_filter,
+            "active_tab":    tab,
+            "flash":         flash,
+            "error":         error,
         },
     )
 
@@ -132,9 +148,9 @@ def submit_hourly(
         )
     except ReportError as exc:
         return RedirectResponse(
-            f"/reports/?error={exc}", status_code=303
+            f"/reports/?tab=submit&error={quote(str(exc))}", status_code=303
         )
-    return RedirectResponse("/reports/?flash=hourly_ok", status_code=303)
+    return RedirectResponse("/reports/?tab=my&flash=hourly_ok", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -156,46 +172,34 @@ def submit_eod(
         )
     except ReportError as exc:
         return RedirectResponse(
-            f"/reports/?error={exc}", status_code=303
+            f"/reports/?tab=eod&error={quote(str(exc))}", status_code=303
         )
-    return RedirectResponse("/reports/?flash=eod_ok", status_code=303)
+    return RedirectResponse("/reports/?tab=eod&flash=eod_ok", status_code=303)
 
 
 # ---------------------------------------------------------------------------
-# GET /reports/my — own reports (JSON-friendly fallback, used by nav link)
+# Convenience redirects (keep old links working)
 # ---------------------------------------------------------------------------
 
 @router.get("/my", response_class=HTMLResponse)
 def my_reports_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(login_required),
+    _request: Request,
+    _current_user: dict = Depends(login_required),
 ):
-    """Redirect to dashboard with ?tab=my pre-selected (tab handled client-side)."""
     return RedirectResponse("/reports/?tab=my", status_code=302)
 
 
-# ---------------------------------------------------------------------------
-# GET /reports/team — team reports (Team Lead / Manager / Admin)
-# ---------------------------------------------------------------------------
-
 @router.get("/team", response_class=HTMLResponse)
 def team_reports_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(role_required(*_TEAM_ROLES)),
+    _request: Request,
+    _current_user: dict = Depends(role_required(*_TEAM_ROLES)),
 ):
     return RedirectResponse("/reports/?tab=team", status_code=302)
 
 
-# ---------------------------------------------------------------------------
-# GET /reports/all — all reports (Manager / Admin only)
-# ---------------------------------------------------------------------------
-
 @router.get("/all", response_class=HTMLResponse)
 def all_reports_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(role_required(*_MANAGER_ROLES)),
+    _request: Request,
+    _current_user: dict = Depends(role_required(*_MANAGER_ROLES)),
 ):
     return RedirectResponse("/reports/?tab=all", status_code=302)

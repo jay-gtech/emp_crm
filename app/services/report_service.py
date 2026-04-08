@@ -8,7 +8,7 @@ the rest of the request pipeline.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,25 @@ logger = logging.getLogger(__name__)
 
 class ReportError(Exception):
     """Domain-level error for report operations."""
+
+
+# ---------------------------------------------------------------------------
+# Internal: date-filter helper
+# ---------------------------------------------------------------------------
+
+def _since_dt(date_filter: str | None) -> datetime | None:
+    """
+    Convert a filter string to a UTC cutoff datetime.
+    Returns None if filter is "all" or unrecognised (no filter applied).
+    """
+    if date_filter == "today":
+        now = datetime.utcnow()
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if date_filter == "week":
+        now = datetime.utcnow()
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start - timedelta(days=6)   # inclusive Mon-Sun window
+    return None   # "all" or anything else → no cutoff
 
 
 # ---------------------------------------------------------------------------
@@ -59,16 +78,19 @@ def submit_hourly_report(
 # 2. Fetch own reports
 # ---------------------------------------------------------------------------
 
-def get_my_reports(db: Session, user_id: int, limit: int = 50) -> list[Report]:
+def get_my_reports(
+    db: Session,
+    user_id: int,
+    limit: int = 50,
+    date_filter: str | None = None,
+) -> list[Report]:
     """Return the most recent reports submitted by *user_id*."""
     try:
-        return (
-            db.query(Report)
-            .filter(Report.user_id == user_id)
-            .order_by(Report.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        q = db.query(Report).filter(Report.user_id == user_id)
+        since = _since_dt(date_filter)
+        if since:
+            q = q.filter(Report.created_at >= since)
+        return q.order_by(Report.created_at.desc()).limit(limit).all()
     except Exception as exc:
         logger.error("get_my_reports failed for user_id=%s: %s", user_id, exc)
         return []
@@ -78,7 +100,12 @@ def get_my_reports(db: Session, user_id: int, limit: int = 50) -> list[Report]:
 # 3. Fetch team reports (Team Lead / Manager)
 # ---------------------------------------------------------------------------
 
-def get_team_reports(db: Session, team_lead_id: int, limit: int = 100) -> list[Report]:
+def get_team_reports(
+    db: Session,
+    team_lead_id: int,
+    limit: int = 100,
+    date_filter: str | None = None,
+) -> list[Report]:
     """
     Return reports from all employees whose team_lead_id == *team_lead_id*.
     No N+1: fetches all matching user IDs in a single subquery.
@@ -95,27 +122,28 @@ def get_team_reports(db: Session, team_lead_id: int, limit: int = 100) -> list[R
         if not member_ids:
             return []
 
-        return (
-            db.query(Report)
-            .filter(Report.user_id.in_(member_ids))
-            .order_by(Report.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        q = db.query(Report).filter(Report.user_id.in_(member_ids))
+        since = _since_dt(date_filter)
+        if since:
+            q = q.filter(Report.created_at >= since)
+        return q.order_by(Report.created_at.desc()).limit(limit).all()
     except Exception as exc:
         logger.error("get_team_reports failed for tl=%s: %s", team_lead_id, exc)
         return []
 
 
-def get_all_reports(db: Session, limit: int = 200) -> list[Report]:
+def get_all_reports(
+    db: Session,
+    limit: int = 200,
+    date_filter: str | None = None,
+) -> list[Report]:
     """Return all reports across all users (Manager / Admin view)."""
     try:
-        return (
-            db.query(Report)
-            .order_by(Report.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        q = db.query(Report)
+        since = _since_dt(date_filter)
+        if since:
+            q = q.filter(Report.created_at >= since)
+        return q.order_by(Report.created_at.desc()).limit(limit).all()
     except Exception as exc:
         logger.error("get_all_reports failed: %s", exc)
         return []
@@ -133,9 +161,7 @@ def submit_eod_report(
 ) -> EODReport:
     """
     Save a Team Lead's EOD report.
-    Raises ReportError if:
-      - summary is blank
-      - an EOD for today already exists
+    Raises ReportError if summary is blank or EOD for today already exists.
     Notifies the Team Lead's manager on success (fire-and-forget).
     """
     summary = summary.strip()
@@ -213,14 +239,11 @@ def get_all_eod_reports(db: Session, limit: int = 100) -> list[EODReport]:
 
 
 # ---------------------------------------------------------------------------
-# 6. Helper — resolve user display name for report listing
+# 6. Helpers — enrich reports/EODs with user names (batch, no N+1)
 # ---------------------------------------------------------------------------
 
 def enrich_reports_with_names(db: Session, reports: list[Report]) -> list[dict]:
-    """
-    Return report dicts with 'user_name' added.
-    Single batch query — no N+1.
-    """
+    """Return report dicts with 'user_name' added. Single batch query."""
     if not reports:
         return []
     try:
@@ -244,3 +267,62 @@ def enrich_reports_with_names(db: Session, reports: list[Report]) -> list[dict]:
     except Exception as exc:
         logger.error("enrich_reports_with_names failed: %s", exc)
         return []
+
+
+def enrich_eod_with_names(db: Session, eod_reports: list[EODReport]) -> list[dict]:
+    """
+    Return EOD report dicts with 'team_lead_name' added.
+    Single batch query — no N+1. Used by Manager / Admin view.
+    """
+    if not eod_reports:
+        return []
+    try:
+        from app.models.user import User
+
+        tl_ids  = {e.team_lead_id for e in eod_reports}
+        users   = db.query(User).filter(User.id.in_(tl_ids)).all()
+        id_name = {u.id: u.name for u in users}
+
+        return [
+            {
+                "id":             e.id,
+                "team_lead_id":   e.team_lead_id,
+                "team_lead_name": id_name.get(e.team_lead_id, "Unknown"),
+                "summary":        e.summary,
+                "report_date":    e.report_date,
+                "created_at":     e.created_at,
+            }
+            for e in eod_reports
+        ]
+    except Exception as exc:
+        logger.error("enrich_eod_with_names failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# 7. Quick stats (counts only — cheap queries)
+# ---------------------------------------------------------------------------
+
+def get_report_stats(db: Session, user_id: int) -> dict:
+    """
+    Return lightweight stats for the current user's dashboard header.
+    Always returns a dict with safe defaults.
+    """
+    try:
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        total = db.query(Report).filter(Report.user_id == user_id).count()
+        today = (
+            db.query(Report)
+            .filter(Report.user_id == user_id, Report.created_at >= today_start)
+            .count()
+        )
+        hours_today_rows = (
+            db.query(Report)
+            .filter(Report.user_id == user_id, Report.created_at >= today_start)
+            .all()
+        )
+        hours_today = sum(r.hours_spent for r in hours_today_rows)
+        return {"total": total, "today": today, "hours_today": round(hours_today, 1)}
+    except Exception as exc:
+        logger.error("get_report_stats failed: %s", exc)
+        return {"total": 0, "today": 0, "hours_today": 0.0}

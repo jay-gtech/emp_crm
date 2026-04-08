@@ -4,179 +4,300 @@
 
 {% block extra_head %}
 <style>
+/* ── Stats bar ──────────────────────────────────────────────────── */
+.rpt-stats {
+  display: flex; gap: 12px; margin-bottom: 22px; flex-wrap: wrap;
+}
+.stat-chip {
+  display: flex; flex-direction: column; align-items: flex-start;
+  background: #fff; border: 1px solid var(--gray-200);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  padding: 12px 18px; flex: 1; min-width: 100px;
+}
+.stat-chip .stat-val {
+  font-size: 24px; font-weight: 800; color: var(--gray-800); line-height: 1.1;
+}
+.stat-chip .stat-lbl {
+  font-size: 11px; font-weight: 600; color: var(--gray-400);
+  text-transform: uppercase; letter-spacing: .05em; margin-top: 3px;
+}
+.stat-chip.accent .stat-val { color: var(--primary); }
+
+/* ── Filter bar ─────────────────────────────────────────────────── */
+.filter-bar {
+  display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap;
+}
+.filter-btn {
+  padding: 7px 16px; border-radius: 99px;
+  border: 1.5px solid var(--gray-200); background: #fff;
+  font-size: 12px; font-weight: 600; color: var(--gray-500);
+  cursor: pointer; text-decoration: none; transition: all .15s;
+  display: inline-block;
+}
+.filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+.filter-btn.active {
+  background: var(--primary); border-color: var(--primary);
+  color: #fff; box-shadow: 0 2px 6px rgba(99,102,241,.3);
+}
+
 /* ── Tab navigation ─────────────────────────────────────────────── */
 .tab-bar {
-  display: flex; gap: 4px; margin-bottom: 22px;
-  background: var(--gray-100); border-radius: var(--radius);
-  padding: 4px; flex-wrap: wrap;
+  display: flex; gap: 2px; margin-bottom: 20px;
+  border-bottom: 2px solid var(--gray-200); flex-wrap: wrap;
 }
 .tab-btn {
-  flex: 1; min-width: 110px; padding: 9px 14px;
-  border: none; border-radius: calc(var(--radius) - 2px);
-  background: transparent; color: var(--gray-500);
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: background .15s, color .15s; white-space: nowrap;
+  padding: 10px 18px; border: none; background: transparent;
+  color: var(--gray-500); font-size: 13px; font-weight: 600;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: color .15s, border-color .15s;
+  white-space: nowrap;
 }
-.tab-btn.active { background: #fff; color: var(--primary); box-shadow: var(--shadow-sm); }
+.tab-btn:hover { color: var(--primary); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 .tab-pane { display: none; }
 .tab-pane.active { display: block; }
 
-/* ── Cards ─────────────────────────────────────────────────────── */
+/* ── Badges ─────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 99px; text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-hourly { background: #e0e7ff; color: #3730a3; }
+.badge-eod    { background: #dcfce7; color: #166534; }
+.badge-hours  { background: #fef3c7; color: #92400e; }
+
+/* ── Report cards ───────────────────────────────────────────────── */
 .rpt-card {
   background: #fff; border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-200);
-  margin-bottom: 12px; padding: 16px 18px;
-  transition: box-shadow .15s;
+  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-100);
+  padding: 16px 18px; margin-bottom: 10px;
+  transition: box-shadow .15s, transform .1s;
 }
-.rpt-card:hover { box-shadow: var(--shadow-md); }
-.rpt-card-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px; gap: 8px; flex-wrap: wrap;
-}
-.rpt-user  { font-size: 13px; font-weight: 700; color: var(--primary); }
-.rpt-time  { font-size: 11px; color: var(--gray-400); }
-.rpt-hours {
-  font-size: 12px; font-weight: 700;
-  background: var(--primary-light, #e0e7ff); color: var(--primary);
-  padding: 2px 10px; border-radius: 99px;
-}
-.rpt-desc  { font-size: 13.5px; color: var(--gray-700); line-height: 1.55; }
+.rpt-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 
-/* EOD card */
+.rpt-card-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.rpt-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rpt-user {
+  font-size: 13px; font-weight: 700; color: var(--primary);
+}
+.rpt-time {
+  font-size: 11px; color: var(--gray-400); font-weight: 500;
+}
+.rpt-desc {
+  font-size: 14px; color: var(--gray-700); line-height: 1.6;
+  word-break: break-word;
+}
+
+/* ── EOD cards ──────────────────────────────────────────────────── */
 .eod-card {
   background: #fff; border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); border-left: 4px solid var(--primary);
-  border: 1px solid var(--gray-200); border-left-width: 4px;
-  margin-bottom: 12px; padding: 14px 18px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--gray-100);
+  border-left: 3px solid var(--primary);
+  padding: 16px 18px; margin-bottom: 10px;
+  transition: box-shadow .15s;
 }
-.eod-date  { font-size: 12px; font-weight: 700; color: var(--primary); margin-bottom: 6px; }
-.eod-lead  { font-size: 11px; color: var(--gray-400); margin-bottom: 8px; }
-.eod-text  { font-size: 13.5px; color: var(--gray-700); line-height: 1.55; }
+.eod-card:hover { box-shadow: var(--shadow-md); }
+.eod-card-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
+}
+.eod-date  { font-weight: 700; font-size: 13px; color: var(--gray-800); }
+.eod-lead  { font-size: 12px; color: var(--primary); font-weight: 600; }
+.eod-text  { font-size: 13.5px; color: var(--gray-600); line-height: 1.6; }
+.eod-ts    { font-size: 11px; color: var(--gray-400); margin-top: 6px; }
 
-/* ── Form ───────────────────────────────────────────────────────── */
+/* ── Form card ──────────────────────────────────────────────────── */
 .rpt-form-card {
   background: #fff; border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-200);
-  padding: 20px 22px; margin-bottom: 24px;
+  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-100);
+  padding: 22px 24px; margin-bottom: 24px;
 }
-.rpt-form-card h3 { font-size: 15px; font-weight: 700; color: var(--gray-800); margin-bottom: 14px; }
-.rpt-field { margin-bottom: 14px; }
+.rpt-form-card h3 {
+  font-size: 15px; font-weight: 700; color: var(--gray-800);
+  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+.rpt-field { margin-bottom: 16px; }
 .rpt-field label {
   display: block; font-size: 12px; font-weight: 600;
-  color: var(--gray-600); margin-bottom: 5px;
+  color: var(--gray-600); margin-bottom: 6px; text-transform: uppercase;
+  letter-spacing: .04em;
 }
 .rpt-field textarea,
 .rpt-field input[type="number"] {
-  width: 100%; padding: 12px 14px; font-size: 15px;
+  width: 100%; padding: 13px 15px; font-size: 15px;
   border: 1.5px solid var(--gray-200); border-radius: var(--radius);
   background: var(--gray-50); color: var(--gray-800);
-  box-sizing: border-box; transition: border-color .15s;
-  -webkit-appearance: none;
+  box-sizing: border-box; transition: border-color .15s, background .15s;
+  -webkit-appearance: none; font-family: inherit;
 }
 .rpt-field textarea:focus,
 .rpt-field input[type="number"]:focus {
   outline: none; border-color: var(--primary); background: #fff;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.1);
 }
-.rpt-field textarea { resize: vertical; min-height: 90px; }
+.rpt-field textarea { resize: vertical; min-height: 100px; }
+.rpt-hint { font-size: 11px; color: var(--gray-400); margin-top: 4px; }
+
 .rpt-submit {
   width: 100%; padding: 14px; font-size: 15px; font-weight: 700;
-  background: var(--primary); color: #fff;
-  border: none; border-radius: var(--radius); cursor: pointer;
-  transition: opacity .15s;
+  background: var(--primary); color: #fff; border: none;
+  border-radius: var(--radius); cursor: pointer;
+  transition: opacity .15s, transform .1s; letter-spacing: .02em;
 }
-.rpt-submit:hover { opacity: .88; }
-.rpt-submit:disabled { opacity: .6; cursor: not-allowed; }
+.rpt-submit:hover  { opacity: .88; transform: translateY(-1px); }
+.rpt-submit:active { transform: translateY(0); }
+.rpt-submit:disabled { opacity: .55; cursor: not-allowed; transform: none; }
 
-/* ── Flash / error banners ──────────────────────────────────────── */
+/* ── Banners ────────────────────────────────────────────────────── */
 .banner {
-  border-radius: var(--radius); padding: 12px 16px;
+  border-radius: var(--radius); padding: 13px 16px;
   font-size: 14px; font-weight: 600; margin-bottom: 18px;
+  display: flex; align-items: center; gap: 8px;
 }
 .banner-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
 .banner-error   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
 
-/* ── Empty state ────────────────────────────────────────────────── */
+/* ── Empty states ───────────────────────────────────────────────── */
 .rpt-empty {
-  text-align: center; padding: 40px 20px;
-  color: var(--gray-400); font-size: 14px;
+  text-align: center; padding: 48px 24px;
+  color: var(--gray-400); font-size: 14px; line-height: 1.7;
 }
-.rpt-empty .big { font-size: 40px; display: block; margin-bottom: 10px; }
+.rpt-empty .rpt-empty-icon { font-size: 44px; display: block; margin-bottom: 12px; }
+.rpt-empty a { color: var(--primary); font-weight: 600; text-decoration: none; }
+.rpt-empty a:hover { text-decoration: underline; }
 
-/* ── Summary chips ──────────────────────────────────────────────── */
-.chips { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
-.chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 5px 13px; border-radius: 99px;
-  font-size: 12px; font-weight: 600;
+/* ── Summary count chips ────────────────────────────────────────── */
+.count-row {
+  display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;
+  align-items: center;
 }
-.chip-total  { background: var(--gray-100); color: var(--gray-700); }
-.chip-hours  { background: #e0e7ff; color: #3730a3; }
+.count-chip {
+  font-size: 12px; font-weight: 600;
+  background: var(--gray-100); color: var(--gray-600);
+  padding: 4px 12px; border-radius: 99px;
+}
+.count-chip.accent { background: #e0e7ff; color: #3730a3; }
+
+/* ── Mobile tweaks ──────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .rpt-stats  { gap: 8px; }
+  .stat-chip  { padding: 10px 14px; min-width: 80px; }
+  .stat-chip .stat-val { font-size: 20px; }
+  .tab-btn    { padding: 8px 12px; font-size: 12px; }
+  .rpt-form-card { padding: 16px; }
+  .rpt-card   { padding: 14px; }
+  .eod-card   { padding: 14px; }
+}
 </style>
 {% endblock %}
 
 {% block content %}
 
+{# ── Flash / error banners ────────────────────────────────────── #}
 {% if flash == 'hourly_ok' %}
 <div class="banner banner-success">✅ Hourly report submitted successfully.</div>
 {% elif flash == 'eod_ok' %}
-<div class="banner banner-success">✅ EOD report submitted. Your manager has been notified.</div>
+<div class="banner banner-success">✅ EOD report submitted — your manager has been notified.</div>
 {% endif %}
 {% if error %}
 <div class="banner banner-error">⚠️ {{ error }}</div>
 {% endif %}
 
-{# ── Build tab list based on role ─────────────────────────────── #}
-{% set role = current_user.role %}
+{# ── Quick stats (own reports only) ──────────────────────────── #}
+{% if current_user.role in ('employee', 'team_lead', 'manager', 'admin') %}
+<div class="rpt-stats">
+  <div class="stat-chip">
+    <span class="stat-val">{{ stats.total }}</span>
+    <span class="stat-lbl">Total Reports</span>
+  </div>
+  <div class="stat-chip accent">
+    <span class="stat-val">{{ stats.today }}</span>
+    <span class="stat-lbl">Today</span>
+  </div>
+  <div class="stat-chip">
+    <span class="stat-val">{{ stats.hours_today }}</span>
+    <span class="stat-lbl">Hrs Today</span>
+  </div>
+</div>
+{% endif %}
 
+{# ── Tab bar ──────────────────────────────────────────────────── #}
+{% set role = current_user.role %}
 <div class="tab-bar" id="tabBar">
   {% if role in ('employee', 'team_lead', 'manager', 'admin') %}
-  <button class="tab-btn" data-tab="my">📄 My Reports</button>
+  <button class="tab-btn" data-tab="my">My Reports</button>
   {% endif %}
   {% if role in ('employee', 'team_lead') %}
-  <button class="tab-btn" data-tab="submit">➕ Submit Report</button>
+  <button class="tab-btn" data-tab="submit">+ Submit</button>
   {% endif %}
   {% if role == 'team_lead' %}
-  <button class="tab-btn" data-tab="team">👥 Team Reports</button>
-  <button class="tab-btn" data-tab="eod">📋 EOD Report</button>
+  <button class="tab-btn" data-tab="team">Team Reports</button>
+  <button class="tab-btn" data-tab="eod">EOD Report</button>
   {% endif %}
   {% if role in ('manager', 'admin') %}
-  <button class="tab-btn" data-tab="team">👥 All Reports</button>
-  <button class="tab-btn" data-tab="eod">📋 EOD Reports</button>
+  <button class="tab-btn" data-tab="team">All Reports</button>
+  <button class="tab-btn" data-tab="eod">EOD Reports</button>
   {% endif %}
 </div>
 
-{# ═══════════════════════════════════════════════════════════════ #}
-{# Tab: My Reports                                                 #}
-{# ═══════════════════════════════════════════════════════════════ #}
+{# ── Filter bar (shown only when viewing data tabs) ───────────── #}
+<div class="filter-bar" id="filterBar" style="display:none">
+  <a href="?filter=today&tab={{ active_tab or 'my' }}"
+     class="filter-btn {% if active_filter == 'today' %}active{% endif %}">Today</a>
+  <a href="?filter=week&tab={{ active_tab or 'my' }}"
+     class="filter-btn {% if active_filter == 'week' %}active{% endif %}">This Week</a>
+  <a href="?filter=all&tab={{ active_tab or 'my' }}"
+     class="filter-btn {% if active_filter == 'all' or not active_filter %}active{% endif %}">All Time</a>
+</div>
+
+{# ══════════════════════════════════════════════════════════════ #}
+{# TAB: My Reports                                               #}
+{# ══════════════════════════════════════════════════════════════ #}
 {% if role in ('employee', 'team_lead', 'manager', 'admin') %}
 <div class="tab-pane" id="tab-my">
   {% if my_reports %}
-  {% set total_h = my_reports | sum(attribute='hours_spent') %}
-  <div class="chips">
-    <span class="chip chip-total">📄 {{ my_reports | length }} reports</span>
-    <span class="chip chip-hours">⏱ {{ "%.1f"|format(total_h) }} hrs total</span>
+  <div class="count-row">
+    <span class="count-chip">{{ my_reports | length }} report{{ 's' if my_reports | length != 1 }}</span>
+    <span class="count-chip accent">
+      {{ "%.1f"|format(my_reports | sum(attribute='hours_spent')) }} hrs logged
+    </span>
   </div>
+
   {% for r in my_reports %}
   <div class="rpt-card">
-    <div class="rpt-card-header">
-      <span class="rpt-hours">{{ "%.1f"|format(r.hours_spent) }} hrs</span>
+    <div class="rpt-card-top">
+      <div class="rpt-meta">
+        <span class="badge badge-hourly">Hourly</span>
+        <span class="badge badge-hours">{{ "%.1f"|format(r.hours_spent) }} hrs</span>
+      </div>
       <span class="rpt-time">{{ r.created_at.strftime('%d %b %Y, %H:%M') if r.created_at else '—' }}</span>
     </div>
     <div class="rpt-desc">{{ r.description }}</div>
   </div>
   {% endfor %}
+
   {% else %}
   <div class="rpt-empty">
-    <span class="big">📭</span>
-    No reports yet. Submit your first one!
+    <span class="rpt-empty-icon">📭</span>
+    {% if active_filter == 'today' %}No reports submitted today.
+    {% elif active_filter == 'week' %}No reports this week.
+    {% else %}No reports yet.{% endif %}
+    {% if role in ('employee', 'team_lead') %}
+    <br><a href="javascript:void(0)" onclick="activateTab('submit')">Submit your first report &rarr;</a>
+    {% endif %}
   </div>
   {% endif %}
 </div>
 {% endif %}
 
-{# ═══════════════════════════════════════════════════════════════ #}
-{# Tab: Submit Hourly Report                                       #}
-{# ═══════════════════════════════════════════════════════════════ #}
+{# ══════════════════════════════════════════════════════════════ #}
+{# TAB: Submit Hourly Report                                     #}
+{# ══════════════════════════════════════════════════════════════ #}
 {% if role in ('employee', 'team_lead') %}
 <div class="tab-pane" id="tab-submit">
   <div class="rpt-form-card">
@@ -185,14 +306,15 @@
       <div class="rpt-field">
         <label for="description">What did you work on? *</label>
         <textarea id="description" name="description"
-                  placeholder="e.g. Fixed login bug, reviewed PRs, attended standup…"
+                  placeholder="e.g. Fixed the login bug, reviewed 3 PRs, attended standup…"
                   required></textarea>
+        <div class="rpt-hint">Be specific — this helps your team lead understand your progress.</div>
       </div>
       <div class="rpt-field">
         <label for="hours_spent">Hours spent *</label>
         <input type="number" id="hours_spent" name="hours_spent"
-               step="0.5" min="0.5" max="24"
-               placeholder="e.g. 1.5" required />
+               step="0.5" min="0.5" max="24" placeholder="e.g. 1.5" required />
+        <div class="rpt-hint">Use 0.5 steps (e.g. 0.5, 1.0, 1.5…)</div>
       </div>
       <button type="submit" class="rpt-submit" id="hourlyBtn">Submit Report</button>
     </form>
@@ -200,87 +322,113 @@
 </div>
 {% endif %}
 
-{# ═══════════════════════════════════════════════════════════════ #}
-{# Tab: Team Reports (Team Lead) / All Reports (Manager)          #}
-{# ═══════════════════════════════════════════════════════════════ #}
+{# ══════════════════════════════════════════════════════════════ #}
+{# TAB: Team / All Reports                                       #}
+{# ══════════════════════════════════════════════════════════════ #}
 {% if role in ('team_lead', 'manager', 'admin') %}
 <div class="tab-pane" id="tab-team">
-  {% set reports_list = team_reports if role == 'team_lead' else all_reports %}
-  {% set heading      = "Team Reports" if role == 'team_lead' else "All Reports" %}
-  <h3 style="font-size:15px;font-weight:700;color:var(--gray-800);margin-bottom:14px">{{ heading }}</h3>
+  {% set rlist   = team_reports if role == 'team_lead' else all_reports %}
+  {% set heading = "Team Reports" if role == 'team_lead' else "All Reports" %}
+  {% set hint    = "No team members have submitted reports" if role == 'team_lead' else "No reports found" %}
 
-  {% if reports_list %}
-  {% set total_h2 = reports_list | sum(attribute='hours_spent') %}
-  <div class="chips">
-    <span class="chip chip-total">📄 {{ reports_list | length }} reports</span>
-    <span class="chip chip-hours">⏱ {{ "%.1f"|format(total_h2) }} hrs total</span>
+  {% if rlist %}
+  <div class="count-row">
+    <span class="count-chip">{{ rlist | length }} report{{ 's' if rlist | length != 1 }}</span>
+    <span class="count-chip accent">
+      {{ "%.1f"|format(rlist | sum(attribute='hours_spent')) }} hrs total
+    </span>
   </div>
-  {% for r in reports_list %}
+
+  {% for r in rlist %}
   <div class="rpt-card">
-    <div class="rpt-card-header">
-      <span class="rpt-user">{{ r.user_name }}</span>
-      <span class="rpt-hours">{{ "%.1f"|format(r.hours_spent) }} hrs</span>
+    <div class="rpt-card-top">
+      <div class="rpt-meta">
+        <span class="rpt-user">{{ r.user_name }}</span>
+        <span class="badge badge-hourly">Hourly</span>
+        <span class="badge badge-hours">{{ "%.1f"|format(r.hours_spent) }} hrs</span>
+      </div>
+      <span class="rpt-time">{{ r.created_at.strftime('%d %b %Y, %H:%M') if r.created_at else '—' }}</span>
     </div>
-    <div class="rpt-desc" style="margin-bottom:5px">{{ r.description }}</div>
-    <div class="rpt-time">{{ r.created_at.strftime('%d %b %Y, %H:%M') if r.created_at else '—' }}</div>
+    <div class="rpt-desc">{{ r.description }}</div>
   </div>
   {% endfor %}
+
   {% else %}
   <div class="rpt-empty">
-    <span class="big">📭</span>
-    {% if role == 'team_lead' %}No team members have submitted reports yet.{% else %}No reports found.{% endif %}
+    <span class="rpt-empty-icon">📊</span>
+    {% if active_filter == 'today' %}{{ hint }} today.
+    {% elif active_filter == 'week' %}{{ hint }} this week.
+    {% else %}{{ hint }} yet.{% endif %}
   </div>
   {% endif %}
 </div>
 {% endif %}
 
-{# ═══════════════════════════════════════════════════════════════ #}
-{# Tab: EOD Report                                                 #}
-{# ═══════════════════════════════════════════════════════════════ #}
+{# ══════════════════════════════════════════════════════════════ #}
+{# TAB: EOD Report (Team Lead submit + history / Manager view)  #}
+{# ══════════════════════════════════════════════════════════════ #}
 {% if role in ('team_lead', 'manager', 'admin') %}
 <div class="tab-pane" id="tab-eod">
+
   {% if role == 'team_lead' %}
-  {# Submit form #}
+  {# ── Submit form ── #}
   <div class="rpt-form-card">
     <h3>📋 Submit EOD Report</h3>
     <form method="post" action="/reports/eod" id="eodForm">
       <div class="rpt-field">
         <label for="summary">Team summary for today *</label>
         <textarea id="summary" name="summary"
-                  placeholder="Summarise what the team accomplished today…"
+                  placeholder="Summarise what the team accomplished today, any blockers, and tomorrow's plan…"
                   style="min-height:120px" required></textarea>
+        <div class="rpt-hint">One EOD per day. This will notify your manager.</div>
       </div>
       <button type="submit" class="rpt-submit" id="eodBtn">Submit EOD Report</button>
     </form>
   </div>
 
-  {# History #}
+  {# ── Own EOD history ── #}
   {% if eod_reports %}
-  <h3 style="font-size:14px;font-weight:700;color:var(--gray-700);margin-bottom:12px">Past EOD Reports</h3>
+  <h4 style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;
+             letter-spacing:.05em;margin-bottom:12px">Past EOD Reports</h4>
   {% for e in eod_reports %}
   <div class="eod-card">
-    <div class="eod-date">{{ e.report_date.strftime('%d %b %Y') if e.report_date else '—' }}</div>
+    <div class="eod-card-top">
+      <span class="eod-date">{{ e.report_date.strftime('%d %b %Y') if e.report_date else '—' }}</span>
+      <span class="badge badge-eod">EOD</span>
+    </div>
     <div class="eod-text">{{ e.summary }}</div>
+    <div class="eod-ts">
+      Submitted {{ e.created_at.strftime('%H:%M') if e.created_at else '—' }}
+    </div>
   </div>
   {% endfor %}
   {% endif %}
 
   {% else %}
-  {# Manager/Admin view — read only #}
-  {% set eod_list = all_eod %}
-  {% if eod_list %}
-  <h3 style="font-size:14px;font-weight:700;color:var(--gray-700);margin-bottom:12px">All EOD Reports</h3>
-  {% for e in eod_list %}
+  {# ── Manager/Admin: read-only enriched view ── #}
+  {% if all_eod %}
+  <div class="count-row">
+    <span class="count-chip">{{ all_eod | length }} EOD report{{ 's' if all_eod | length != 1 }}</span>
+  </div>
+  {% for e in all_eod %}
   <div class="eod-card">
-    <div class="eod-date">{{ e.report_date.strftime('%d %b %Y') if e.report_date else '—' }}</div>
-    <div class="eod-lead">Team Lead ID: {{ e.team_lead_id }}</div>
+    <div class="eod-card-top">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span class="eod-date">{{ e.report_date.strftime('%d %b %Y') if e.report_date else '—' }}</span>
+        <span class="eod-lead">{{ e.team_lead_name }}</span>
+      </div>
+      <span class="badge badge-eod">EOD</span>
+    </div>
     <div class="eod-text">{{ e.summary }}</div>
+    <div class="eod-ts">
+      Submitted {{ e.created_at.strftime('%d %b %Y, %H:%M') if e.created_at else '—' }}
+    </div>
   </div>
   {% endfor %}
   {% else %}
   <div class="rpt-empty">
-    <span class="big">📭</span>
-    No EOD reports submitted yet.
+    <span class="rpt-empty-icon">📋</span>
+    No EOD reports have been submitted yet.
   </div>
   {% endif %}
   {% endif %}
@@ -290,42 +438,55 @@
 <script>
 (function () {
   'use strict';
-  const tabBar   = document.getElementById('tabBar');
-  if (!tabBar) return;
-  const btns     = tabBar.querySelectorAll('.tab-btn');
-  const panes    = document.querySelectorAll('.tab-pane');
 
-  function activate(tabId) {
-    btns.forEach(b  => b.classList.toggle('active', b.dataset.tab === tabId));
+  const tabBar   = document.getElementById('tabBar');
+  const filterBar = document.getElementById('filterBar');
+  if (!tabBar) return;
+
+  const btns  = Array.from(tabBar.querySelectorAll('.tab-btn'));
+  const panes = Array.from(document.querySelectorAll('.tab-pane'));
+
+  // Tabs that make sense to filter
+  const FILTERABLE = new Set(['my', 'team', 'all']);
+
+  function activateTab(tabId) {
+    btns.forEach(b  => b.classList.toggle('active',  b.dataset.tab === tabId));
     panes.forEach(p => p.classList.toggle('active', p.id === 'tab-' + tabId));
+    // Show / hide filter bar
+    if (filterBar) filterBar.style.display = FILTERABLE.has(tabId) ? 'flex' : 'none';
+    // Sync filter-bar links with current tab
+    if (filterBar) {
+      filterBar.querySelectorAll('a.filter-btn').forEach(a => {
+        a.href = a.href.replace(/tab=[^&]*/, 'tab=' + tabId);
+      });
+    }
     try { sessionStorage.setItem('rpt_tab', tabId); } catch(e) {}
   }
 
-  btns.forEach(btn => {
-    btn.addEventListener('click', () => activate(btn.dataset.tab));
-  });
+  window.activateTab = activateTab;   // expose for inline onclick
 
-  // Honour ?tab= query param, then sessionStorage, then first tab
+  btns.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.tab)));
+
+  // Determine initial tab
   const urlTab   = new URLSearchParams(location.search).get('tab');
   const savedTab = (() => { try { return sessionStorage.getItem('rpt_tab'); } catch(e) {} })();
-  const firstTab = btns.length ? btns[0].dataset.tab : null;
+  const firstTab = btns.length ? btns[0].dataset.tab : 'my';
 
-  // If there's a flash/error, show the relevant tab
   {% if flash == 'hourly_ok' %}
-  activate('my');
+  activateTab('my');
   {% elif flash == 'eod_ok' %}
-  activate('eod');
+  activateTab('eod');
   {% elif error %}
-  activate(urlTab || savedTab || firstTab || 'my');
+  activateTab(urlTab || savedTab || firstTab);
   {% else %}
-  activate(urlTab || savedTab || firstTab || 'my');
+  activateTab(urlTab || savedTab || firstTab);
   {% endif %}
 
-  // Prevent double submit
+  // Prevent double submit on both forms
   ['hourlyForm', 'eodForm'].forEach(fid => {
     const f = document.getElementById(fid);
     if (!f) return;
-    f.addEventListener('submit', function() {
+    f.addEventListener('submit', function () {
       const btn = this.querySelector('.rpt-submit');
       if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
     });
