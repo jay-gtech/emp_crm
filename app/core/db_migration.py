@@ -121,6 +121,17 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
         "target_ids",
         "ALTER TABLE announcements ADD COLUMN target_ids TEXT;",
     ),
+    # ── Group chat columns on messages ─────────────────────────────────────────
+    (
+        "messages",
+        "group_id",
+        "ALTER TABLE messages ADD COLUMN group_id INTEGER REFERENCES chat_groups(id) ON DELETE CASCADE;",
+    ),
+    (
+        "messages",
+        "file_url",
+        "ALTER TABLE messages ADD COLUMN file_url VARCHAR(500);",
+    ),
 ]
 
 
@@ -150,6 +161,30 @@ _TABLE_MIGRATIONS: list[tuple[str, str]] = [
             user_id    INTEGER NOT NULL REFERENCES users(id),
             comment    TEXT NOT NULL,
             created_at DATETIME DEFAULT (datetime('now'))
+        );
+        """,
+    ),
+    # ── Chat groups ────────────────────────────────────────────────────────────
+    (
+        "chat_groups",
+        """
+        CREATE TABLE IF NOT EXISTS chat_groups (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       VARCHAR(100) NOT NULL,
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            created_at DATETIME DEFAULT (datetime('now'))
+        );
+        """,
+    ),
+    (
+        "chat_group_members",
+        """
+        CREATE TABLE IF NOT EXISTS chat_group_members (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id  INTEGER NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
+            user_id   INTEGER NOT NULL REFERENCES users(id),
+            joined_at DATETIME DEFAULT (datetime('now')),
+            UNIQUE(group_id, user_id)
         );
         """,
     ),

@@ -16,6 +16,7 @@ from app.models.visitor import Visitor
 from app.models.report import Report
 from app.models.eod_report import EODReport
 from app.models.expense import ExpenseGroup, ExpenseMember
+from app.models.chat_group import ChatGroup, ChatGroupMember
 
 __all__ = [
     "User", "UserRole",
@@ -35,4 +36,6 @@ __all__ = [
     "EODReport",
     "ExpenseGroup",
     "ExpenseMember",
+    "ChatGroup",
+    "ChatGroupMember",
 ]
