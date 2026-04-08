@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Live Team Locations — Employee CRM{% endblock %}
+{% block page_title %}Live Team Locations{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  #teamMap {
+    height: 480px;
+    border-radius: var(--radius);
+    border: 1px solid var(--gray-200);
+    z-index: 0;
+  }
+  .loc-card   { display:flex; align-items:flex-start; gap:12px; padding:12px 0;
+                border-bottom:1px solid var(--gray-100); }
+  .loc-card:last-child { border-bottom:none; }
+  .loc-avatar { width:36px; height:36px; border-radius:50%; display:flex;
+                align-items:center; justify-content:center;
+                font-size:14px; font-weight:700; flex-shrink:0;
+                background:var(--primary-light); color:var(--primary); }
+  .loc-meta   { font-size:11px; color:var(--gray-400); margin-top:2px; }
+  .mode-office { color:var(--primary); }
+  .mode-wfh    { color:var(--success); }
+  #refreshBtn  { font-size:12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+  <div>
+    <span style="font-size:13px;color:var(--gray-400)">
+      Showing last known location per team member.
+      Refreshes automatically every 5 seconds.
+    </span>
+  </div>
+  <button id="refreshBtn" class="btn btn-outline btn-sm" onclick="loadLocations()">
+    🔄 Refresh Now
+  </button>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start" id="mainGrid">
+
+  <!-- Map — do NOT put overflow:hidden here; Leaflet tiles are absolutely
+       positioned and will be clipped, producing a blank grey map -->
+  <div class="card">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+      <h2 style="margin:0">🗺️ Map View</h2>
+      <span id="mapStatus" style="font-size:12px;color:var(--gray-400)">Loading…</span>
+    </div>
+    <div id="teamMap"></div>
+  </div>
+
+  <!-- Sidebar list -->
+  <div class="card">
+    <div class="card-header"><h2>👥 Team Members</h2></div>
+    <div class="card-body" style="padding:0 16px" id="memberList">
+      <div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">
+        Loading…
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Office boundary (server-rendered) ─────────────────────────────────
+  var officeLat    = {{ office_lat if office_lat else 'null' }};
+  var officeLng    = {{ office_lng if office_lng else 'null' }};
+  var officeRadius = {{ office_radius | int if office_radius else 100 }};
+
+  // ── Map bootstrap ──────────────────────────────────────────────────────
+  var initLat  = officeLat  !== null ? officeLat  : 20.5937;
+  var initLng  = officeLng  !== null ? officeLng  : 78.9629;
+  var initZoom = officeLat  !== null ? 15          : 5;
+
+  var map = L.map('teamMap', { preferCanvas: true }).setView([initLat, initLng], initZoom);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // CSS grid layouts finish painting after the JS runs, so Leaflet may have
+  // captured a 0×0 container size.  invalidateSize() forces a re-measure.
+  // Two rounds: 100 ms catches most cases, 500 ms catches slow paint.
+  setTimeout(function () { map.invalidateSize(); }, 100);
+  setTimeout(function () { map.invalidateSize(); }, 500);
+
+  // Draw office boundary if configured
+  if (officeLat !== null && officeLng !== null) {
+    L.circle([officeLat, officeLng], {
+      radius: officeRadius,
+      color: '#6366f1',
+      fillColor: '#6366f1',
+      fillOpacity: 0.10,
+      weight: 2,
+    }).addTo(map).bindPopup('Office boundary (' + officeRadius + ' m)');
+
+    L.marker([officeLat, officeLng], {
+      icon: L.divIcon({
+        html: '<div style="font-size:22px;line-height:1">🏢</div>',
+        className: '',
+        iconAnchor: [11, 22],
+      })
+    }).addTo(map).bindPopup('Office');
+  }
+
+  // ── Member markers — keyed by user_id, updated in place ──────────────────
+  // Never recreated from scratch; positions are moved via setLatLng() so the
+  // map stays smooth and open popups are preserved across refreshes.
+  var markers = {};   // { user_id: L.Marker }
+
+  var modeIcon = {
+    office: '🏢',
+    wfh:    '🏠',
+    remote: '🏠',
+  };
+
+  function buildIcon(workMode) {
+    return L.divIcon({
+      html: '<div style="font-size:20px;line-height:1">' + (modeIcon[workMode] || '📍') + '</div>',
+      className: '',
+      iconAnchor: [10, 20],
+    });
+  }
+
+  function buildPopup(u) {
+    return '<strong>' + escHtml(u.name) + '</strong>'
+      + '<br>Role: '      + escHtml(u.role)
+      + '<br>Mode: '      + escHtml(u.work_mode)
+      + '<br>Action: '    + escHtml(u.action)
+      + '<br>Last seen: ' + escHtml(u.timestamp);
+  }
+
+  function updateMarkers(users) {
+    // Build a set of user_ids present in this response
+    var seen = {};
+
+    users.forEach(function (u) {
+      var key = u.user_id;
+      seen[key] = true;
+
+      if (markers[key]) {
+        // ── Existing marker: move it, refresh popup text ──────────────────
+        markers[key].setLatLng([u.lat, u.lng]);
+        markers[key].setPopupContent(buildPopup(u));
+        // Update icon only if work_mode changed
+        markers[key].setIcon(buildIcon(u.work_mode));
+      } else {
+        // ── New marker: create and register ───────────────────────────────
+        markers[key] = L.marker([u.lat, u.lng], { icon: buildIcon(u.work_mode) })
+          .addTo(map)
+          .bindPopup(buildPopup(u));
+      }
+    });
+
+    // Remove markers for users no longer in the response
+    Object.keys(markers).forEach(function (key) {
+      if (!seen[key]) {
+        map.removeLayer(markers[key]);
+        delete markers[key];
+      }
+    });
+  }
+
+  // ── Sidebar list rendering ─────────────────────────────────────────────
+  var listEl    = document.getElementById('memberList');
+  var statusEl  = document.getElementById('mapStatus');
+
+  function renderList(users) {
+    if (!users || users.length === 0) {
+      listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">' +
+        'No location data available yet.<br>Members appear after their first clock-in.</div>';
+      statusEl.textContent = '0 members with location data';
+      return;
+    }
+
+    statusEl.textContent = users.length + ' member' + (users.length !== 1 ? 's' : '') + ' tracked';
+
+    listEl.innerHTML = users.map(function (u) {
+      var modeClass = (u.work_mode === 'wfh' || u.work_mode === 'remote') ? 'mode-wfh' : 'mode-office';
+      var modeLabel = u.work_mode === 'wfh' || u.work_mode === 'remote' ? '🏠 WFH' : '🏢 Office';
+      return '<div class="loc-card">'
+        + '<div class="loc-avatar">' + escHtml(u.name.charAt(0).toUpperCase()) + '</div>'
+        + '<div style="flex:1;min-width:0">'
+        +   '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+        +     escHtml(u.name)
+        +   '</div>'
+        +   '<div class="loc-meta ' + modeClass + '">' + modeLabel + ' · ' + escHtml(u.role) + '</div>'
+        +   '<div class="loc-meta">Last: ' + escHtml(u.timestamp) + '</div>'
+        +   '<div class="loc-meta">Action: ' + escHtml(u.action) + '</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // ── Fetch + render ─────────────────────────────────────────────────────
+  window.loadLocations = function () {
+    statusEl.textContent = 'Refreshing…';
+    fetch('/location/team-locations')
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        updateMarkers(data);
+        renderList(data);
+
+        // Auto-fit map to markers + office if we have points
+        if (data.length > 0) {
+          var bounds = [];
+          if (officeLat !== null) bounds.push([officeLat, officeLng]);
+          data.forEach(function (u) { bounds.push([u.lat, u.lng]); });
+          if (bounds.length > 1) {
+            // Re-measure before fitBounds so the fit is calculated on the
+            // real container dimensions, not a stale 0×0 snapshot.
+            map.invalidateSize();
+            map.fitBounds(bounds, { padding: [40, 40] });
+          }
+        }
+      })
+      .catch(function (err) {
+        statusEl.textContent = '⚠️ Failed to load locations';
+        console.warn('team-locations fetch error:', err);
+      });
+  };
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  // Initial load + live refresh every 5 s
+  loadLocations();
+  setInterval(loadLocations, 5000);
+
+  // Responsive: collapse grid to single column on small screens
+  if (window.innerWidth < 768) {
+    document.getElementById('mainGrid').style.gridTemplateColumns = '1fr';
+  }
+})();
+</script>
+
+{% endblock %}

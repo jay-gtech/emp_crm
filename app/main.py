@@ -33,7 +33,7 @@ except Exception as _sl_exc:
 import app.models  # noqa: F401
 
 # Import routers
-from app.routes import auth, employees, attendance, tasks, leaves, dashboard, notifications, api, auto_assign
+from app.routes import auth, employees, attendance, tasks, leaves, dashboard, notifications, api, auto_assign, admin as admin_router, location as location_router
 
 # Analytics router — guarded so a broken analytics module never kills the app
 try:
@@ -189,18 +189,27 @@ templates = Jinja2Templates(directory="app/templates")
 app.include_router(auth.router)
 app.include_router(employees.router)
 app.include_router(attendance.router)
+# Task comments MUST be registered before tasks router (more-specific routes first)
+try:
+    from app.routes import task_comments as task_comments_router
+    app.include_router(task_comments_router.router)
+except Exception as _tc_exc:
+    _log.warning("[startup] task_comments router skipped: %s", _tc_exc)
 app.include_router(tasks.router)
 app.include_router(leaves.router)
 app.include_router(dashboard.router)
 app.include_router(notifications.router)
 app.include_router(api.router)
 app.include_router(auto_assign.router)
+app.include_router(admin_router.router)
+app.include_router(location_router.router)
 from app.routes import announcements
 app.include_router(announcements.router, prefix="/announcements")
 from app.routes import meetings
 app.include_router(meetings.router, prefix="/meetings")
 from app.routes import chat
 app.include_router(chat.router, prefix="/chat")
+
 
 if _ANALYTICS_OK:
     app.include_router(analytics_router.router)

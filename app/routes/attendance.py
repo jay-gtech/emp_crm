@@ -11,6 +11,7 @@ from app.services.attendance_service import (
 from app.services.break_service import (
     start_break, end_break, get_today_breaks, get_active_break, BreakError,
 )
+from app.services.location_service import validate_user_location, save_location_log
 
 # Late clock-in thresholds (09:30)
 _LATE_HOUR = 9
@@ -117,32 +118,86 @@ def attendance_page(
 def do_clock_in(
     request: Request,
     work_mode: str = Form("office"),
+    latitude: float = Form(None),
+    longitude: float = Form(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
     if current_user["role"] == "admin":
         raise HTTPException(status_code=403, detail="Admins cannot perform this action")
 
+    # Load full user object for location check
+    from app.models.user import User
+    user = db.get(User, current_user["user_id"])
+
+    if user:
+        valid, error = validate_user_location(user, latitude, longitude)
+        if not valid:
+            return templates.TemplateResponse(
+                "attendance/index.html",
+                {
+                    "request": request,
+                    "current_user": current_user,
+                    "error": error,
+                    "today": None, "history": [], "breaks": [],
+                    "active_break": None, "date_from": "", "date_to": "",
+                    "late_hour": _LATE_HOUR, "late_minute": _LATE_MINUTE,
+                    "admin_attendance": None,
+                    "manager_team_attendance": None,
+                    "tl_team_attendance": None,
+                },
+                status_code=403,
+            )
+
     try:
         clock_in(db, current_user["user_id"], work_mode)
     except AttendanceError:
         pass  # already clocked in — ignore
+
+    save_location_log(db, current_user["user_id"], latitude, longitude, "clock_in")
     return RedirectResponse("/attendance/", status_code=302)
 
 
 @router.post("/clock-out")
 def do_clock_out(
     request: Request,
+    latitude: float = Form(None),
+    longitude: float = Form(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
     if current_user["role"] == "admin":
         raise HTTPException(status_code=403, detail="Admins cannot perform this action")
 
+    # Load full user object for location check
+    from app.models.user import User
+    user = db.get(User, current_user["user_id"])
+
+    if user:
+        valid, error = validate_user_location(user, latitude, longitude)
+        if not valid:
+            return templates.TemplateResponse(
+                "attendance/index.html",
+                {
+                    "request": request,
+                    "current_user": current_user,
+                    "error": error,
+                    "today": None, "history": [], "breaks": [],
+                    "active_break": None, "date_from": "", "date_to": "",
+                    "late_hour": _LATE_HOUR, "late_minute": _LATE_MINUTE,
+                    "admin_attendance": None,
+                    "manager_team_attendance": None,
+                    "tl_team_attendance": None,
+                },
+                status_code=403,
+            )
+
     try:
         clock_out(db, current_user["user_id"])
     except AttendanceError:
         pass
+
+    save_location_log(db, current_user["user_id"], latitude, longitude, "clock_out")
     return RedirectResponse("/attendance/", status_code=302)
 
 

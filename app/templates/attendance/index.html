@@ -11,16 +11,20 @@
 <div class="card" style="margin-bottom:20px">
   <div class="action-bar">
     {% if not today or not today.clock_in_time %}
-      <form method="post" action="/attendance/clock-in">
+      <form method="post" action="/attendance/clock-in" id="clockInForm">
+        <input type="hidden" name="latitude"  id="ciLat">
+        <input type="hidden" name="longitude" id="ciLng">
         <select name="work_mode" class="form-control" style="width:auto;display:inline-block;margin-right:6px">
           <option value="office">Office</option>
           <option value="remote">Remote</option>
         </select>
-        <button class="btn btn-success">🟢 Clock In</button>
+        <button type="button" class="btn btn-success" onclick="submitWithLocation('clockInForm','ciLat','ciLng')">🟢 Clock In</button>
       </form>
     {% elif not today.clock_out_time %}
-      <form method="post" action="/attendance/clock-out">
-        <button class="btn btn-danger">🔴 Clock Out</button>
+      <form method="post" action="/attendance/clock-out" id="clockOutForm">
+        <input type="hidden" name="latitude"  id="coLat">
+        <input type="hidden" name="longitude" id="coLng">
+        <button type="button" class="btn btn-danger" onclick="submitWithLocation('clockOutForm','coLat','coLng')">🔴 Clock Out</button>
       </form>
       {% if not active_break %}
         <form method="post" action="/attendance/break/start">
@@ -155,5 +159,36 @@
     </table>
   </div>
 </div>
+
+<script>
+/**
+ * Grab the browser's current position, populate hidden lat/lng fields,
+ * then submit the given form.  Falls through (submits without coords) if
+ * geolocation is denied or unavailable — the server enforces policy.
+ */
+function submitWithLocation(formId, latId, lngId) {
+  var form = document.getElementById(formId);
+  if (!form) return;
+
+  if (!navigator.geolocation) {
+    form.submit();
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    function (pos) {
+      document.getElementById(latId).value = pos.coords.latitude;
+      document.getElementById(lngId).value = pos.coords.longitude;
+      form.submit();
+    },
+    function () {
+      // Denied or timed-out — submit anyway; server decides based on work_mode
+      if (window.showToast) showToast('Location unavailable. Submitting without it.', 'warning');
+      form.submit();
+    },
+    { timeout: 8000, maximumAge: 30000 }
+  );
+}
+</script>
 
 {% endblock %}

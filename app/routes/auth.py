@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import set_session_user, clear_session, get_session_user
 from app.services.auth_service import authenticate_user, AuthError
+from app.services.location_service import save_location_log
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ def _login_handler(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    latitude: float = Form(None),
+    longitude: float = Form(None),
     db: Session = Depends(get_db),
 ):
     """Core login logic — registered with or without rate limiting below."""
@@ -43,15 +46,21 @@ def _login_handler(
 
     try:
         user = authenticate_user(db, clean_email, password)
-        logger.info("Login success: user_id=%s role=%s", user.id, user.role.value)
-
-        set_session_user(request, user.id, user.role.value, user.name)
-        return RedirectResponse("/dashboard", status_code=302)
     except AuthError as e:
         logger.warning("Login failed: email=%s reason=%s", clean_email, str(e))
         return templates.TemplateResponse(
             "auth/login.html", {"request": request, "error": str(e)}, status_code=400
         )
+
+    logger.info("Login success: user_id=%s role=%s", user.id, user.role.value)
+    set_session_user(request, user.id, user.role.value, user.name)
+
+    # Opportunistic location log — no enforcement at login; validation is
+    # done at clock-in / clock-out only.
+    if latitude is not None and longitude is not None:
+        save_location_log(db, user.id, latitude, longitude, "login")
+
+    return RedirectResponse("/dashboard", status_code=302)
 
 
 # Register the POST /login route — wrap with rate limiter when available

@@ -236,3 +236,36 @@ def mark_as_read(
         except Exception:
             pass
         return False
+
+
+# ---------------------------------------------------------------------------
+# 5.  Direct task lifecycle notification (no audit log required)
+# ---------------------------------------------------------------------------
+
+def create_task_notification(
+    db: Session,
+    user_id: int,
+    message: str,
+    notif_type: str = "info",   # kept for forward-compat; stored as plain message
+) -> bool:
+    """
+    Create a single notification for *user_id* directly.
+    Safe to call from task routes — returns True on success, False on any error.
+    Deliberately fire-and-forget: failures never propagate to callers.
+    """
+    try:
+        notif = Notification(
+            user_id=user_id,
+            message=message,
+            is_read=False,
+        )
+        db.add(notif)
+        db.commit()
+        return True
+    except Exception as exc:
+        logger.warning("create_task_notification failed for user_id=%s: %s", user_id, exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False

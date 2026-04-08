@@ -52,6 +52,96 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
         "audit_log_id",
         "ALTER TABLE notifications ADD COLUMN audit_log_id INTEGER REFERENCES audit_logs(id);",
     ),
+    # ── Location-based access control (users) ─────────────────────────────────
+    (
+        "users",
+        "work_mode",
+        "ALTER TABLE users ADD COLUMN work_mode VARCHAR(10) DEFAULT 'office';",
+    ),
+    (
+        "users",
+        "office_lat",
+        "ALTER TABLE users ADD COLUMN office_lat FLOAT;",
+    ),
+    (
+        "users",
+        "office_lng",
+        "ALTER TABLE users ADD COLUMN office_lng FLOAT;",
+    ),
+    (
+        "users",
+        "office_radius",
+        "ALTER TABLE users ADD COLUMN office_radius FLOAT DEFAULT 100;",
+    ),
+    # ── Task lifecycle time-tracking & approval ───────────────────────────────
+    (
+        "tasks",
+        "start_time",
+        "ALTER TABLE tasks ADD COLUMN start_time DATETIME;",
+    ),
+    (
+        "tasks",
+        "end_time",
+        "ALTER TABLE tasks ADD COLUMN end_time DATETIME;",
+    ),
+    (
+        "tasks",
+        "duration_seconds",
+        "ALTER TABLE tasks ADD COLUMN duration_seconds INTEGER;",
+    ),
+    (
+        "tasks",
+        "approved_by",
+        "ALTER TABLE tasks ADD COLUMN approved_by INTEGER REFERENCES users(id);",
+    ),
+    (
+        "tasks",
+        "approved_at",
+        "ALTER TABLE tasks ADD COLUMN approved_at DATETIME;",
+    ),
+    # ── Deadline & delay tracking ───────────────────────────────────────────
+    (
+        "tasks",
+        "deadline",
+        "ALTER TABLE tasks ADD COLUMN deadline DATETIME;",
+    ),
+    (
+        "tasks",
+        "is_delayed",
+        "ALTER TABLE tasks ADD COLUMN is_delayed BOOLEAN DEFAULT 0 NOT NULL;",
+    ),
+]
+
+
+# ── New-table DDL statements ──────────────────────────────────────────────────
+# Each entry: (table_name, CREATE TABLE … IF NOT EXISTS SQL)
+_TABLE_MIGRATIONS: list[tuple[str, str]] = [
+    (
+        "location_logs",
+        """
+        CREATE TABLE IF NOT EXISTS location_logs (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id   INTEGER NOT NULL REFERENCES users(id),
+            latitude  FLOAT,
+            longitude FLOAT,
+            action    VARCHAR(50) NOT NULL,
+            timestamp DATETIME NOT NULL
+        );
+        """,
+    ),
+    # ── Task Comments ──────────────────────────────────────────────────────────
+    (
+        "task_comments",
+        """
+        CREATE TABLE IF NOT EXISTS task_comments (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            user_id    INTEGER NOT NULL REFERENCES users(id),
+            comment    TEXT NOT NULL,
+            created_at DATETIME DEFAULT (datetime('now'))
+        );
+        """,
+    ),
 ]
 
 
@@ -68,6 +158,14 @@ def apply_safe_migrations(engine: Engine) -> None:
     """
     try:
         with engine.begin() as conn:
+            # ── Ensure new tables exist ───────────────────────────────────────
+            for table_name, create_sql in _TABLE_MIGRATIONS:
+                try:
+                    conn.execute(text(create_sql))
+                    logger.info("[migration] Ensured table %s exists ✓", table_name)
+                except Exception as tbl_exc:
+                    logger.warning("[migration] Table %s DDL failed: %s", table_name, tbl_exc)
+
             # Cache column sets per table to avoid redundant PRAGMA calls
             column_cache: dict[str, set[str]] = {}
 

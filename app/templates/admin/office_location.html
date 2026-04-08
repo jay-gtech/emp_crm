@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}Office Location Setup — Employee CRM{% endblock %}
+{% block page_title %}Office Location Setup{% endblock %}
+
+{# Leaflet CSS in <head> #}
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  #officeMap {
+    height: 340px;
+    border-radius: var(--radius);
+    border: 1px solid var(--gray-200);
+    margin-bottom: 16px;
+    z-index: 0;           /* keep below sidebar/dropdown z-index */
+  }
+  .map-hint {
+    font-size: 12px;
+    color: var(--gray-400);
+    margin-bottom: 12px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:700px;margin:0 auto">
+
+  {% if success %}
+  <div class="alert alert-success" style="margin-bottom:20px">
+    ✅ Office location saved. All employees will be validated against the new coordinates.
+  </div>
+  {% endif %}
+
+  <!-- Current status card -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-header"><h2>📍 Current Office Location</h2></div>
+    <div class="card-body" style="padding:16px 20px">
+      {% if office_lat and office_lng %}
+        <div style="display:flex;gap:32px;flex-wrap:wrap">
+          <div>
+            <div class="text-muted text-sm">Latitude</div>
+            <strong>{{ "%.6f"|format(office_lat) }}</strong>
+          </div>
+          <div>
+            <div class="text-muted text-sm">Longitude</div>
+            <strong>{{ "%.6f"|format(office_lng) }}</strong>
+          </div>
+          <div>
+            <div class="text-muted text-sm">Allowed Radius</div>
+            <strong>{{ office_radius | int }} m</strong>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <span class="badge badge-green">Configured</span>
+          <span style="font-size:12px;color:var(--gray-400);margin-left:8px">
+            Employees in office mode must be within {{ office_radius | int }} m of this point to clock in.
+          </span>
+        </div>
+      {% else %}
+        <div style="color:var(--gray-400);font-size:13px">
+          ⚠️ Office location not configured. Employees in <strong>office mode</strong>
+          will be blocked from clocking in until this is set.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Config form -->
+  <div class="card">
+    <div class="card-header"><h2>⚙️ Update Office Location</h2></div>
+    <div class="card-body" style="padding:20px">
+
+      <form method="post" action="/admin/office-location" id="officeForm">
+
+        <!-- Hidden fields populated by map click or GPS button -->
+        <input type="hidden" name="latitude"  id="latInput"
+               value="{{ '%.6f'|format(office_lat) if office_lat else '' }}">
+        <input type="hidden" name="longitude" id="lngInput"
+               value="{{ '%.6f'|format(office_lng) if office_lng else '' }}">
+
+        <!-- ── Leaflet map ───────────────────────────────────────────── -->
+        <p class="map-hint">
+          🖱️ <strong>Click on the map</strong> to set the office pin.
+          The radius circle updates when you change the radius field.
+        </p>
+        <div id="officeMap"></div>
+
+        <!-- Coord readout (read-only, for transparency) -->
+        <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <label class="form-label">Latitude (auto-filled)</label>
+            <input id="latDisplay" type="text" class="form-control"
+                   readonly placeholder="Click map to set"
+                   value="{{ '%.6f'|format(office_lat) if office_lat else '' }}"
+                   style="background:var(--gray-50);color:var(--gray-500)" />
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label class="form-label">Longitude (auto-filled)</label>
+            <input id="lngDisplay" type="text" class="form-control"
+                   readonly placeholder="Click map to set"
+                   value="{{ '%.6f'|format(office_lng) if office_lng else '' }}"
+                   style="background:var(--gray-50);color:var(--gray-500)" />
+          </div>
+        </div>
+
+        <!-- Radius -->
+        <div class="form-group" style="margin-bottom:20px">
+          <label class="form-label" for="radiusInput">Allowed Radius (metres)</label>
+          <input id="radiusInput" name="radius" type="number"
+                 step="1" min="1" max="50000" class="form-control"
+                 value="{{ office_radius | int if office_radius else 100 }}"
+                 required />
+          <small class="text-muted">
+            Employees must be within this distance of the pin to clock in.
+          </small>
+        </div>
+
+        <!-- GPS helper -->
+        <div style="margin-bottom:20px">
+          <button type="button" class="btn btn-outline" id="geoBtn"
+                  onclick="useCurrentLocation()">
+            📡 Use My Current Location
+          </button>
+          <span id="geoStatus"
+                style="font-size:12px;color:var(--gray-400);margin-left:10px"></span>
+        </div>
+
+        <div id="noCoordWarning" class="alert alert-danger"
+             style="display:none;margin-bottom:12px">
+          ⚠️ Please click the map or use GPS to set a location before saving.
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button type="submit" class="btn btn-primary">💾 Save Office Location</button>
+          <a href="/admin/office-location" class="btn btn-outline">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- Help note -->
+  <div style="margin-top:16px;font-size:12px;color:var(--gray-400);line-height:1.6">
+    <strong>How it works:</strong> Location validation applies only at clock-in and clock-out.
+    Employees in <em>WFH</em> mode are unaffected and may work from anywhere.
+  </div>
+
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Saved values (may be empty strings if not configured) ──────────────
+  var savedLat = {{ office_lat if office_lat else 'null' }};
+  var savedLng = {{ office_lng if office_lng else 'null' }};
+  var savedRadius = {{ office_radius | int if office_radius else 100 }};
+
+  // ── Initial map centre: saved coords → India default ───────────────────
+  var initLat = savedLat !== null ? savedLat : 20.5937;
+  var initLng = savedLng !== null ? savedLng : 78.9629;
+  var initZoom = savedLat !== null ? 16 : 5;
+
+  var map = L.map('officeMap', { preferCanvas: true }).setView([initLat, initLng], initZoom);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // The map sits inside .card > .card-body padding context.  Leaflet captures
+  // the container dimensions synchronously (before CSS box model settles), so
+  // tiles render off-screen.  Two-pass invalidate covers slow paint paths.
+  setTimeout(function () { map.invalidateSize(); }, 100);
+  setTimeout(function () { map.invalidateSize(); }, 500);
+
+  var marker = null;
+  var circle = null;
+
+  // ── Place pin + radius circle ───────────────────────────────────────────
+  function placePin(lat, lng) {
+    var radius = parseInt(document.getElementById('radiusInput').value, 10) || 100;
+
+    if (marker) { map.removeLayer(marker); }
+    if (circle) { map.removeLayer(circle); }
+
+    marker = L.marker([lat, lng]).addTo(map)
+      .bindPopup('Office location').openPopup();
+
+    circle = L.circle([lat, lng], {
+      radius: radius,
+      color: '#6366f1',
+      fillColor: '#6366f1',
+      fillOpacity: 0.12,
+      weight: 2,
+    }).addTo(map);
+
+    // Populate hidden + display fields
+    document.getElementById('latInput').value   = lat.toFixed(6);
+    document.getElementById('lngInput').value   = lng.toFixed(6);
+    document.getElementById('latDisplay').value = lat.toFixed(6);
+    document.getElementById('lngDisplay').value = lng.toFixed(6);
+
+    document.getElementById('noCoordWarning').style.display = 'none';
+  }
+
+  // If already configured, show existing pin immediately
+  if (savedLat !== null && savedLng !== null) {
+    placePin(savedLat, savedLng);
+  }
+
+  // ── Click on map to set pin ─────────────────────────────────────────────
+  map.on('click', function (e) {
+    placePin(e.latlng.lat, e.latlng.lng);
+  });
+
+  // ── Redraw radius circle when radius input changes ──────────────────────
+  document.getElementById('radiusInput').addEventListener('input', function () {
+    var lat = parseFloat(document.getElementById('latInput').value);
+    var lng = parseFloat(document.getElementById('lngInput').value);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      placePin(lat, lng);
+    }
+  });
+
+  // ── GPS helper ──────────────────────────────────────────────────────────
+  window.useCurrentLocation = function () {
+    var statusEl = document.getElementById('geoStatus');
+    var btn      = document.getElementById('geoBtn');
+
+    if (!navigator.geolocation) {
+      statusEl.textContent = 'Geolocation not supported by this browser.';
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.textContent = 'Fetching location…';
+
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        var lat = pos.coords.latitude;
+        var lng = pos.coords.longitude;
+        map.invalidateSize();
+        placePin(lat, lng);
+        map.setView([lat, lng], 17);
+        statusEl.style.color = 'var(--success)';
+        statusEl.textContent = '✅ Location filled — review pin and save.';
+        btn.disabled = false;
+      },
+      function (err) {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = '⚠️ ' + err.message;
+        btn.disabled = false;
+      },
+      { timeout: 10000, maximumAge: 0, enableHighAccuracy: true }
+    );
+  };
+
+  // ── Form validation before submit ───────────────────────────────────────
+  document.getElementById('officeForm').addEventListener('submit', function (e) {
+    var lat = document.getElementById('latInput').value;
+    var lng = document.getElementById('lngInput').value;
+    var r   = parseFloat(document.getElementById('radiusInput').value);
+
+    if (!lat || !lng) {
+      e.preventDefault();
+      document.getElementById('noCoordWarning').style.display = 'block';
+      return;
+    }
+    if (isNaN(r) || r <= 0) {
+      e.preventDefault();
+      alert('Radius must be a positive number.');
+    }
+  });
+})();
+</script>
+{% endblock %}

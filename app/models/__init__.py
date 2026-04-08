@@ -10,6 +10,8 @@ from app.models.audit_log import AuditLog, AuditAction
 from app.models.announcement import Announcement
 from app.models.meeting import Meeting
 from app.models.message import Message
+from app.models.location_log import LocationLog
+from app.models.task_comment import TaskComment
 
 __all__ = [
     "User", "UserRole",
@@ -22,4 +24,6 @@ __all__ = [
     "Announcement",
     "Meeting",
     "Message",
+    "LocationLog",
+    "TaskComment",
 ]

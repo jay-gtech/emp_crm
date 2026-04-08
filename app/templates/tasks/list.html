@@ -1,9 +1,224 @@
 {% extends "base.html" %}
 {% block title %}Tasks — Employee CRM{% endblock %}
 {% block page_title %}Tasks{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ── Analytics Cards ──────────────────────────────────────────────── */
+.task-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: var(--radius, 10px);
+  padding: 16px 18px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  transition: transform .15s, box-shadow .15s;
+}
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+.stat-card .stat-val {
+  font-size: 28px; font-weight: 700;
+  color: var(--primary, #6366f1);
+  line-height: 1.1; margin-bottom: 4px;
+}
+.stat-card .stat-lbl { font-size: 11px; color: var(--gray-400, #9ca3af); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; }
+.stat-card.red   .stat-val { color: var(--danger,  #ef4444); }
+.stat-card.green .stat-val { color: var(--success, #22c55e); }
+.stat-card.blue  .stat-val { color: var(--info,    #3b82f6); }
+.stat-card.amber .stat-val { color: var(--warning, #f59e0b); }
+
+/* ── Delay badge ──────────────────────────────────────────────────── */
+.badge-delayed {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;
+  border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+}
+.badge-upcoming {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #fffbeb; color: #d97706; border: 1px solid #fde68a;
+  border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 500;
+}
+.badge-ontrack {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0;
+  border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 500;
+}
+
+/* ── Comment panel ─────────────────────────────────────────────────── */
+.comment-panel {
+  display: none;
+  border-top: 1px solid var(--gray-100, #f3f4f6);
+  padding: 12px 16px;
+  background: var(--gray-50, #f9fafb);
+}
+.comment-panel.open { display: block; }
+.comment-thread { max-height: 180px; overflow-y: auto; margin-bottom: 8px; }
+.comment-item { padding: 6px 0; border-bottom: 1px solid var(--gray-100, #f3f4f6); font-size: 12px; }
+.comment-item:last-child { border-bottom: none; }
+.comment-author { font-weight: 600; color: var(--gray-700, #374151); }
+.comment-meta   { font-size: 10px; color: var(--gray-400, #9ca3af); margin-left: 6px; }
+.comment-text   { color: var(--gray-600, #4b5563); margin-top: 2px; }
+.comment-form   { display: flex; gap: 6px; align-items: flex-start; }
+.comment-form textarea {
+  flex: 1; border-radius: 6px; border: 1px solid var(--gray-300, #d1d5db);
+  padding: 6px 8px; font-size: 12px; resize: none; min-height: 44px;
+  background: #fff;
+}
+.comment-toggle-btn {
+  background: none; border: none; cursor: pointer; font-size: 11px;
+  color: var(--primary, #6366f1); font-weight: 500; padding: 2px 4px;
+}
+.comment-toggle-btn:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
 {% block content %}
 
-<!-- Create task form (managers / admins / team_leads) -->
+{# ── Duration formatter macro ───────────────────────────────────────── #}
+{% macro fmt_duration(secs) %}
+  {%- if secs is not none and secs > 0 -%}
+    {%- set h = (secs // 3600) | int -%}
+    {%- set m = ((secs % 3600) // 60) | int -%}
+    {%- if h > 0 -%}{{ h }}h {{ m }}m{%- else -%}{{ m }}m{%- endif -%}
+  {%- else -%}—{%- endif -%}
+{% endmacro %}
+
+{# ── Status badge macro ────────────────────────────────────────────── #}
+{% macro status_badge(s) %}
+  {%- if s == 'completed' -%}<span class="badge badge-green" style="white-space:nowrap">✅ Completed</span>
+  {%- elif s == 'in_progress' -%}<span class="badge badge-blue" style="white-space:nowrap">🔄 In Progress</span>
+  {%- elif s == 'pending_approval' -%}<span class="badge badge-yellow" style="white-space:nowrap">⏳ Pending Approval</span>
+  {%- elif s == 'assigned' -%}<span class="badge badge-gray" style="white-space:nowrap">📋 Assigned</span>
+  {%- elif s == 'approved' -%}<span class="badge badge-green" style="white-space:nowrap">✅ Approved</span>
+  {%- elif s == 'rejected' -%}<span class="badge badge-red" style="white-space:nowrap">❌ Rejected</span>
+  {%- else -%}<span class="badge badge-gray" style="white-space:nowrap">{{ s | title }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+{# ── Deadline display macro ────────────────────────────────────────── #}
+{% macro deadline_cell(task) %}
+  {%- if task.is_delayed -%}
+    <span class="badge-delayed">🔴 Delayed</span>
+    {%- if task.deadline -%}
+      <br><span style="font-size:10px;color:#9ca3af">{{ task.deadline.strftime('%d %b %H:%M') }}</span>
+    {%- endif -%}
+  {%- elif task.deadline and task.status.value != 'completed' -%}
+    {%- set ns = namespace(hrs=0) -%}
+    {%- set dl_str = task.deadline.strftime('%Y-%m-%dT%H:%M') -%}
+    <span class="badge-upcoming" id="dl-{{ task.id }}" data-deadline="{{ dl_str }}">
+      ⏳ <span class="dl-remain-{{ task.id }}">…</span>
+    </span>
+    <br><span style="font-size:10px;color:#9ca3af">{{ task.deadline.strftime('%d %b %H:%M') }}</span>
+  {%- elif task.deadline -%}
+    <span class="badge-ontrack">✔ {{ task.deadline.strftime('%d %b') }}</span>
+  {%- else -%}
+    <span style="color:#d1d5db">—</span>
+  {%- endif -%}
+{% endmacro %}
+
+<!-- ── Analytics Stats Row ────────────────────────────────────────── -->
+{% if task_stats %}
+<div class="task-stats-grid" style="margin-bottom:20px">
+  {# Universal keys #}
+  {% if task_stats.total_tasks is defined %}
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.total_tasks }}</div>
+      <div class="stat-lbl">My Tasks</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-val">{{ task_stats.completed_tasks }}</div>
+      <div class="stat-lbl">Completed</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-val">{{ task_stats.in_progress_tasks }}</div>
+      <div class="stat-lbl">In Progress</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-val">{{ task_stats.pending_tasks }}</div>
+      <div class="stat-lbl">Pending Approval</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-val">{{ task_stats.delayed_tasks }}</div>
+      <div class="stat-lbl">Delayed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.completion_rate }}%</div>
+      <div class="stat-lbl">Completion Rate</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.avg_duration_minutes }}m</div>
+      <div class="stat-lbl">Avg Duration</div>
+    </div>
+  {# Team / manager keys #}
+  {% elif task_stats.team_total is defined %}
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.team_total }}</div>
+      <div class="stat-lbl">Team Tasks</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-val">{{ task_stats.team_completed }}</div>
+      <div class="stat-lbl">Completed</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-val">{{ task_stats.team_pending_approval }}</div>
+      <div class="stat-lbl">Awaiting Approval</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-val">{{ task_stats.team_delayed }}</div>
+      <div class="stat-lbl">Delayed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.team_completion_rate }}%</div>
+      <div class="stat-lbl">Completion Rate</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-val">{{ task_stats.team_avg_duration_minutes }}m</div>
+      <div class="stat-lbl">Avg Duration</div>
+    </div>
+  {# System/admin keys #}
+  {% elif task_stats.total is defined %}
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.total }}</div>
+      <div class="stat-lbl">Total Tasks</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-val">{{ task_stats.completed }}</div>
+      <div class="stat-lbl">Completed</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-val">{{ task_stats.in_progress }}</div>
+      <div class="stat-lbl">In Progress</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-val">{{ task_stats.pending_approval }}</div>
+      <div class="stat-lbl">Pending Approval</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.assigned }}</div>
+      <div class="stat-lbl">Assigned</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-val">{{ task_stats.delayed }}</div>
+      <div class="stat-lbl">Delayed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.completion_rate }}%</div>
+      <div class="stat-lbl">Completion Rate</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val">{{ task_stats.avg_duration_minutes }}m</div>
+      <div class="stat-lbl">Avg Duration</div>
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ── Create task form (managers / admins / team_leads) ────────────── -->
 {% if current_user.role in ('admin', 'manager', 'team_lead') %}
 <div class="card" style="margin-bottom:20px">
   <div class="card-header"><h2>➕ Assign New Task</h2></div>
@@ -38,6 +253,11 @@
         <label class="form-label">Due Date</label>
         <input name="due_date" type="date" class="form-control" />
       </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">⏰ Deadline (with time)</label>
+        <input name="deadline" type="datetime-local" class="form-control"
+               title="Hard deadline for delay tracking" />
+      </div>
       <div style="grid-column:1/-1">
         <button type="submit" class="btn btn-primary">Assign Task</button>
       </div>
@@ -46,23 +266,24 @@
 </div>
 {% endif %}
 
-<!-- Build employee id->name lookup for display -->
+<!-- ── Employee name lookup map ────────────────────────────────────── -->
 {% set emp_map = {} %}
 {% for emp in employees %}
   {% if emp_map.update({emp.id: emp.name}) %}{% endif %}
 {% endfor %}
 
-<!-- Task list -->
+<!-- ── Task list ───────────────────────────────────────────────────── -->
 <div class="card">
   <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <h2 style="margin:0">📋 Task List</h2>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input id="taskSearch" type="text" class="form-control" placeholder="Search title…"
              style="width:180px" oninput="filterTasks()" />
-      <select id="statusFilter" class="form-control" style="width:140px" onchange="filterTasks()">
+      <select id="statusFilter" class="form-control" style="width:160px" onchange="filterTasks()">
         <option value="">All Statuses</option>
-        <option value="pending">Pending</option>
+        <option value="assigned">Assigned</option>
         <option value="in_progress">In Progress</option>
+        <option value="pending_approval">Pending Approval</option>
         <option value="completed">Completed</option>
       </select>
       <select id="priorityFilter" class="form-control" style="width:130px" onchange="filterTasks()">
@@ -76,18 +297,22 @@
       {% endif %}
     </div>
   </div>
-  <div class="table-wrap">
-    <table id="taskTable">
+  <div class="table-wrap" style="overflow-x:auto">
+    <table id="taskTable" style="min-width:1050px">
       <thead>
         <tr>
           <th>#</th><th>Title</th><th>Assigned To</th><th>Priority</th>
-          <th>Due Date</th><th>Status</th><th>Action</th>
+          <th>Due</th><th>⏰ Deadline</th><th>Status</th>
+          <th>⏱ Start</th><th>🏁 End</th><th>⏳ Dur.</th><th>👤 Approved By</th>
+          <th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for task in tasks %}
+        {% set sv  = task.status.value %}
+        {% set uid = current_user.user_id %}
         <tr data-title="{{ task.title | lower }}"
-            data-status="{{ task.status.value }}"
+            data-status="{{ sv }}"
             data-priority="{{ task.priority.value }}">
           <td class="text-muted">#{{ task.id }}</td>
           <td>
@@ -97,49 +322,116 @@
             {% endif %}
           </td>
           <td>
-            {% if task.assigned_to in emp_map %}
-              {{ emp_map[task.assigned_to] }}
-            {% else %}
-              <span class="text-muted">#{{ task.assigned_to }}</span>
+            {% if task.assigned_to in emp_map %}{{ emp_map[task.assigned_to] }}
+            {% else %}<span class="text-muted">#{{ task.assigned_to }}</span>
             {% endif %}
           </td>
           <td>
-            {% if task.priority.value == 'high' %}
-              <span class="badge badge-red">High</span>
-            {% elif task.priority.value == 'medium' %}
-              <span class="badge badge-yellow">Medium</span>
-            {% else %}
-              <span class="badge badge-gray">Low</span>
+            {% if task.priority.value == 'high' %}<span class="badge badge-red">High</span>
+            {% elif task.priority.value == 'medium' %}<span class="badge badge-yellow">Medium</span>
+            {% else %}<span class="badge badge-gray">Low</span>
             {% endif %}
           </td>
           <td>{{ task.due_date or '—' }}</td>
-          <td>
-            {% if task.status.value == 'completed' %}
-              <span class="badge badge-green">Completed</span>
-            {% elif task.status.value == 'in_progress' %}
-              <span class="badge badge-blue">In Progress</span>
-            {% else %}
-              <span class="badge badge-gray">Pending</span>
-            {% endif %}
+
+          <!-- Deadline + delay -->
+          <td style="white-space:nowrap">{{ deadline_cell(task) }}</td>
+
+          <!-- Status badge -->
+          <td>{{ status_badge(sv) }}</td>
+
+          <!-- Time tracking -->
+          <td class="text-sm text-muted" style="white-space:nowrap">
+            {% if task.start_time %}{{ task.start_time.strftime('%d %b %H:%M') }}{% else %}—{% endif %}
           </td>
-          <td>
-            <form method="post" action="/tasks/{{ task.id }}/status" style="display:flex;gap:6px;align-items:center">
-              <select name="status" class="form-control" style="width:auto;padding:3px 6px;font-size:12px">
-                <option value="pending" {% if task.status.value=='pending' %}selected{% endif %}>Pending</option>
-                <option value="in_progress" {% if task.status.value=='in_progress' %}selected{% endif %}>In Progress</option>
-                <option value="completed" {% if task.status.value=='completed' %}selected{% endif %}>Completed</option>
-              </select>
-              <button class="btn btn-outline btn-sm">Update</button>
-            </form>
+          <td class="text-sm text-muted" style="white-space:nowrap">
+            {% if task.end_time %}{{ task.end_time.strftime('%d %b %H:%M') }}{% else %}—{% endif %}
+          </td>
+          <td class="text-sm" style="white-space:nowrap;font-weight:500">
+            {{ fmt_duration(task.duration_seconds) }}
+          </td>
+
+          <!-- Approved by -->
+          <td class="text-sm text-muted">
+            {% if task.approved_by and task.approved_by in approver_map %}{{ approver_map[task.approved_by] }}
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Action buttons (context-aware) -->
+          <td style="white-space:nowrap;min-width:180px">
+            {# Assignee buttons #}
+            {% if uid == task.assigned_to %}
+              {% if sv in ('assigned', 'todo', 'pending') %}
+                <form method="post" action="/tasks/{{ task.id }}/start" style="display:inline">
+                  <button class="btn btn-primary btn-sm">▶ Start</button>
+                </form>
+              {% elif sv == 'in_progress' %}
+                <form method="post" action="/tasks/{{ task.id }}/submit" style="display:inline">
+                  <button class="btn btn-outline btn-sm" style="border-color:#3b82f6;color:#3b82f6">📤 Submit</button>
+                </form>
+              {% elif sv == 'pending_approval' %}
+                <span class="text-muted text-sm">Awaiting approval…</span>
+              {% elif sv == 'completed' %}
+                <span class="badge badge-green text-sm">Done ✓</span>
+              {% endif %}
+            {% endif %}
+
+            {# Assigner buttons #}
+            {% if uid == task.assigned_by and uid != task.assigned_to %}
+              {% if sv == 'pending_approval' %}
+                <form method="post" action="/tasks/{{ task.id }}/approve" style="display:inline;margin-right:4px">
+                  <button class="btn btn-sm" style="background:#22c55e;color:#fff">✅ Approve</button>
+                </form>
+                <form method="post" action="/tasks/{{ task.id }}/reject" style="display:inline">
+                  <button class="btn btn-danger btn-sm">↩ Reject</button>
+                </form>
+              {% elif sv == 'completed' %}
+                <span class="badge badge-green text-sm">Completed</span>
+              {% else %}
+                <span class="text-muted text-sm">Waiting…</span>
+              {% endif %}
+            {% endif %}
+
+            {# Admin override dropdown #}
+            {% if current_user.role == 'admin' and uid != task.assigned_to and uid != task.assigned_by %}
+              <form method="post" action="/tasks/{{ task.id }}/status" style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
+                <select name="status" class="form-control" style="width:auto;padding:2px 6px;font-size:12px">
+                  <option value="assigned" {% if sv=='assigned' %}selected{% endif %}>Assigned</option>
+                  <option value="in_progress" {% if sv=='in_progress' %}selected{% endif %}>In Progress</option>
+                  <option value="pending_approval" {% if sv=='pending_approval' %}selected{% endif %}>Pending Approval</option>
+                  <option value="completed" {% if sv=='completed' %}selected{% endif %}>Completed</option>
+                </select>
+                <button class="btn btn-outline btn-sm">Set</button>
+              </form>
+            {% endif %}
+
+            {# Comments toggle #}
+            <button class="comment-toggle-btn" onclick="toggleComments({{ task.id }}, this)">💬 Comments</button>
+
+            {# Delete #}
             {% if current_user.role in ('admin', 'manager', 'team_lead') %}
-            <form method="post" action="/tasks/{{ task.id }}/delete" style="margin-top:4px">
-              <button class="btn btn-danger btn-sm" onclick="return confirm('Delete this task?')">Delete</button>
+            <form method="post" action="/tasks/{{ task.id }}/delete" style="display:inline;margin-left:4px">
+              <button class="btn btn-danger btn-sm" onclick="return confirm('Delete this task?')">🗑</button>
             </form>
             {% endif %}
           </td>
         </tr>
+        <!-- Comment panel row -->
+        <tr id="comment-row-{{ task.id }}" style="display:none">
+          <td colspan="12" style="padding:0">
+            <div class="comment-panel" id="comment-panel-{{ task.id }}">
+              <div class="comment-thread" id="comment-thread-{{ task.id }}">
+                <div style="color:#9ca3af;font-size:12px;padding:8px 0">Loading comments…</div>
+              </div>
+              <form method="post" action="/tasks/{{ task.id }}/comment" class="comment-form">
+                <textarea name="comment" placeholder="Add a comment…" rows="2" required></textarea>
+                <button class="btn btn-primary btn-sm" style="white-space:nowrap">Post</button>
+              </form>
+            </div>
+          </td>
+        </tr>
         {% else %}
-        <tr id="noTasksRow"><td colspan="7" style="text-align:center;color:var(--gray-400);padding:32px">No tasks found.</td></tr>
+        <tr id="noTasksRow"><td colspan="12" style="text-align:center;color:var(--gray-400);padding:32px">No tasks found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -148,22 +440,90 @@
 </div>
 
 <script>
+/* ── Filter ──────────────────────────────────────────────────────── */
 function filterTasks() {
-  const search = document.getElementById('taskSearch').value.toLowerCase();
-  const status = document.getElementById('statusFilter').value;
+  const search   = document.getElementById('taskSearch').value.toLowerCase();
+  const status   = document.getElementById('statusFilter').value;
   const priority = document.getElementById('priorityFilter').value;
-  const rows = document.querySelectorAll('#taskTable tbody tr[data-title]');
-  let visible = 0;
+  const rows     = document.querySelectorAll('#taskTable tbody tr[data-title]');
+  let visible    = 0;
   rows.forEach(row => {
-    const titleMatch = !search || row.dataset.title.includes(search);
-    const statusMatch = !status || row.dataset.status === status;
-    const priorityMatch = !priority || row.dataset.priority === priority;
-    const show = titleMatch && statusMatch && priorityMatch;
-    row.style.display = show ? '' : 'none';
-    if (show) visible++;
+    const ok = (!search   || row.dataset.title.includes(search))
+            && (!status   || row.dataset.status   === status)
+            && (!priority || row.dataset.priority === priority);
+    row.style.display = ok ? '' : 'none';
+    // Hide associated comment row too
+    const cRow = document.getElementById('comment-row-' + (row.querySelector('[data-title]') ? '' : ''));
+    if (ok) visible++;
   });
   const noMatch = document.getElementById('noFilterMatch');
   if (noMatch) noMatch.style.display = (rows.length > 0 && visible === 0) ? 'block' : 'none';
+}
+
+/* ── Deadline countdown ──────────────────────────────────────────── */
+(function () {
+  function updateCountdowns() {
+    document.querySelectorAll('[data-deadline]').forEach(el => {
+      try {
+        const dl   = new Date(el.dataset.deadline);
+        const now  = new Date();
+        const diff = dl - now;
+        if (diff <= 0) { el.className = 'badge-delayed'; el.innerHTML = '🔴 Overdue'; return; }
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const taskId = el.id.replace('dl-', '');
+        const span = document.querySelector('.dl-remain-' + taskId);
+        if (span) span.textContent = h > 0 ? h + 'h ' + m + 'm left' : m + 'm left';
+      } catch(e) {}
+    });
+  }
+  updateCountdowns();
+  setInterval(updateCountdowns, 60000);
+})();
+
+/* ── Comments ────────────────────────────────────────────────────── */
+const _loadedComments = new Set();
+
+function toggleComments(taskId, btn) {
+  const row   = document.getElementById('comment-row-' + taskId);
+  const panel = document.getElementById('comment-panel-' + taskId);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  row.style.display   = isOpen ? 'none' : '';
+  panel.classList.toggle('open', !isOpen);
+  btn.textContent     = isOpen ? '💬 Comments' : '💬 Hide';
+  if (!isOpen && !_loadedComments.has(taskId)) {
+    loadComments(taskId);
+  }
+}
+
+function loadComments(taskId) {
+  const thread = document.getElementById('comment-thread-' + taskId);
+  fetch('/tasks/' + taskId + '/comments')
+    .then(r => r.json())
+    .then(data => {
+      _loadedComments.add(taskId);
+      if (!data || data.length === 0) {
+        thread.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:6px 0">No comments yet. Be the first!</div>';
+        return;
+      }
+      thread.innerHTML = data.map(c => `
+        <div class="comment-item">
+          <span class="comment-author">${escHtml(c.user_name)}</span>
+          <span class="comment-meta">${escHtml(c.created_at)}</span>
+          <div class="comment-text">${escHtml(c.comment)}</div>
+        </div>`).join('');
+      thread.scrollTop = thread.scrollHeight;
+    })
+    .catch(() => {
+      if (thread) thread.innerHTML = '<div style="color:#9ca3af;font-size:12px">Could not load comments.</div>';
+    });
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
 }
 </script>
 

@@ -855,3 +855,168 @@ def get_data_quality_check() -> dict:
             "missing_ml_prob":    0,
             "warnings":           [f"Error: {exc}"],
         }
+
+
+# ---------------------------------------------------------------------------
+# 13. User Task Stats  (personal dashboard cards)
+# ---------------------------------------------------------------------------
+
+def get_user_task_stats(db: Session, user_id: int) -> dict:
+    """
+    Personal task KPIs for *user_id*.
+
+    Shape:
+        {
+          "total_tasks": 12,
+          "completed_tasks": 8,
+          "pending_tasks": 1,
+          "in_progress_tasks": 2,
+          "delayed_tasks": 1,
+          "completion_rate": 66.7,
+          "avg_duration_minutes": 142.5,
+        }
+    """
+    try:
+        _, Task, TaskStatus, *_ = _models()
+
+        tasks = db.query(Task).filter(Task.assigned_to == user_id).all()
+        total      = len(tasks)
+        completed  = [t for t in tasks if t.status == TaskStatus.completed]
+        in_prog    = [t for t in tasks if t.status == TaskStatus.in_progress]
+        pending_ap = [t for t in tasks if t.status == TaskStatus.pending_approval]
+        delayed    = [t for t in tasks if getattr(t, "is_delayed", False)]
+
+        durations  = [
+            t.duration_seconds for t in completed
+            if t.duration_seconds is not None and t.duration_seconds > 0
+        ]
+        avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
+        rate        = round(len(completed) / total * 100, 1) if total else 0.0
+
+        return {
+            "total_tasks":           total,
+            "completed_tasks":       len(completed),
+            "pending_tasks":         len(pending_ap),
+            "in_progress_tasks":     len(in_prog),
+            "delayed_tasks":         len(delayed),
+            "completion_rate":       rate,
+            "avg_duration_minutes":  avg_dur_min,
+        }
+    except Exception as exc:
+        logger.error("analytics.get_user_task_stats(%s) failed: %s", user_id, exc)
+        return {
+            "total_tasks": 0, "completed_tasks": 0, "pending_tasks": 0,
+            "in_progress_tasks": 0, "delayed_tasks": 0,
+            "completion_rate": 0.0, "avg_duration_minutes": 0.0,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 14. Manager Team Stats  (scoped to manager's direct team)
+# ---------------------------------------------------------------------------
+
+def get_manager_team_stats(db: Session, manager_id: int) -> dict:
+    """
+    Aggregated task KPIs for all users in a manager's team.
+    Includes both TL and employee tasks assigned by the manager.
+
+    Shape:
+        {
+          "team_total": 30,
+          "team_completed": 20,
+          "team_delayed": 3,
+          "team_pending_approval": 4,
+          "team_avg_duration_minutes": 110.0,
+          "team_completion_rate": 66.7,
+        }
+    """
+    try:
+        _, Task, TaskStatus, *_ = _models()
+        from app.models.user import User
+
+        # Tasks assigned BY this manager
+        tasks = db.query(Task).filter(Task.assigned_by == manager_id).all()
+        total      = len(tasks)
+        completed  = [t for t in tasks if t.status == TaskStatus.completed]
+        delayed    = [t for t in tasks if getattr(t, "is_delayed", False)]
+        pend_ap    = [t for t in tasks if t.status == TaskStatus.pending_approval]
+
+        durations  = [
+            t.duration_seconds for t in completed
+            if t.duration_seconds is not None and t.duration_seconds > 0
+        ]
+        avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
+        rate        = round(len(completed) / total * 100, 1) if total else 0.0
+
+        return {
+            "team_total":                total,
+            "team_completed":            len(completed),
+            "team_delayed":              len(delayed),
+            "team_pending_approval":     len(pend_ap),
+            "team_avg_duration_minutes": avg_dur_min,
+            "team_completion_rate":      rate,
+        }
+    except Exception as exc:
+        logger.error("analytics.get_manager_team_stats(%s) failed: %s", manager_id, exc)
+        return {
+            "team_total": 0, "team_completed": 0, "team_delayed": 0,
+            "team_pending_approval": 0, "team_avg_duration_minutes": 0.0,
+            "team_completion_rate": 0.0,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 15. System Task Stats  (org-wide KPI cards for admin/analytics page)
+# ---------------------------------------------------------------------------
+
+def get_system_task_stats(db: Session) -> dict:
+    """
+    Org-wide task health KPIs.
+
+    Shape:
+        {
+          "total": 100,
+          "completed": 60,
+          "in_progress": 15,
+          "pending_approval": 10,
+          "assigned": 15,
+          "delayed": 8,
+          "completion_rate": 60.0,
+          "avg_duration_minutes": 130.2,
+        }
+    """
+    try:
+        _, Task, TaskStatus, *_ = _models()
+
+        all_tasks  = db.query(Task).all()
+        total      = len(all_tasks)
+        completed  = [t for t in all_tasks if t.status == TaskStatus.completed]
+        in_prog    = [t for t in all_tasks if t.status == TaskStatus.in_progress]
+        pend_ap    = [t for t in all_tasks if t.status == TaskStatus.pending_approval]
+        assigned   = [t for t in all_tasks if t.status == TaskStatus.assigned]
+        delayed    = [t for t in all_tasks if getattr(t, "is_delayed", False)]
+
+        durations  = [
+            t.duration_seconds for t in completed
+            if t.duration_seconds is not None and t.duration_seconds > 0
+        ]
+        avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
+        rate        = round(len(completed) / total * 100, 1) if total else 0.0
+
+        return {
+            "total":             total,
+            "completed":         len(completed),
+            "in_progress":       len(in_prog),
+            "pending_approval":  len(pend_ap),
+            "assigned":          len(assigned),
+            "delayed":           len(delayed),
+            "completion_rate":   rate,
+            "avg_duration_minutes": avg_dur_min,
+        }
+    except Exception as exc:
+        logger.error("analytics.get_system_task_stats failed: %s", exc)
+        return {
+            "total": 0, "completed": 0, "in_progress": 0,
+            "pending_approval": 0, "assigned": 0, "delayed": 0,
+            "completion_rate": 0.0, "avg_duration_minutes": 0.0,
+        }
