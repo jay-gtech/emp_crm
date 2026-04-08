@@ -91,6 +91,11 @@
       <a class="nav-link {% if request.url.path.startswith('/analytics') %}active{% endif %}" href="/analytics/">
         <span class="icon">📈</span> Analytics
       </a>
+      {% if current_user and current_user.role in ('employee', 'team_lead', 'manager', 'admin') %}
+      <a class="nav-link {% if request.url.path.startswith('/reports') %}active{% endif %}" href="/reports/">
+        <span class="icon">📝</span> Reports
+      </a>
+      {% endif %}
       <div class="nav-section-title">Communication</div>
       <a class="nav-link {% if request.url.path.startswith('/announcements') %}active{% endif %}" href="/announcements/">
         <span class="icon">📢</span> Announcements

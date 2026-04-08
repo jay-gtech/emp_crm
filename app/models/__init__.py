@@ -13,6 +13,8 @@ from app.models.message import Message
 from app.models.location_log import LocationLog
 from app.models.task_comment import TaskComment
 from app.models.visitor import Visitor
+from app.models.report import Report
+from app.models.eod_report import EODReport
 
 __all__ = [
     "User", "UserRole",
@@ -28,4 +30,6 @@ __all__ = [
     "LocationLog",
     "TaskComment",
     "Visitor",
+    "Report",
+    "EODReport",
 ]

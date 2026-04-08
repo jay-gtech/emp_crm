@@ -209,6 +209,12 @@ try:
 except Exception as _vms_exc:
     _log.warning("[startup] visitor router skipped: %s", _vms_exc)
 
+try:
+    from app.routes import reports as reports_router
+    app.include_router(reports_router.router)
+except Exception as _rpt_exc:
+    _log.warning("[startup] reports router skipped: %s", _rpt_exc)
+
 from app.routes import announcements
 app.include_router(announcements.router, prefix="/announcements")
 from app.routes import meetings
