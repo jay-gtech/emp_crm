@@ -31,10 +31,11 @@
       <div class="form-group">
         <label class="form-label">Role</label>
         <select name="role" class="form-control">
-          <option value="employee" {% if employee.role.value=='employee' %}selected{% endif %}>Employee</option>
-          <option value="team_lead"{% if employee.role.value=='team_lead'%}selected{% endif %}>Team Lead</option>
-          <option value="manager"  {% if employee.role.value=='manager'  %}selected{% endif %}>Manager</option>
-          <option value="admin"    {% if employee.role.value=='admin'    %}selected{% endif %}>Admin</option>
+          <option value="employee"       {% if employee.role.value=='employee'       %}selected{% endif %}>Employee</option>
+          <option value="team_lead"      {% if employee.role.value=='team_lead'      %}selected{% endif %}>Team Lead</option>
+          <option value="manager"        {% if employee.role.value=='manager'        %}selected{% endif %}>Manager</option>
+          <option value="admin"          {% if employee.role.value=='admin'          %}selected{% endif %}>Admin</option>
+          <option value="security_guard" {% if employee.role.value=='security_guard' %}selected{% endif %}>Security Guard</option>
         </select>
       </div>
       <div class="flex-gap">

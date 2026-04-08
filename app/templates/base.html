@@ -101,6 +101,24 @@
       <a class="nav-link {% if request.url.path.startswith('/chat') %}active{% endif %}" href="/chat/">
         <span class="icon">💬</span> Chat
       </a>
+      {% if current_user %}
+      <div class="nav-section-title">Visitors</div>
+      {% if current_user.role == 'security_guard' %}
+      <a class="nav-link {% if request.url.path.startswith('/visitor/register') %}active{% endif %}" href="/visitor/register">
+        <span class="icon">🪪</span> Register Visitor
+      </a>
+      <a class="nav-link {% if request.url.path.startswith('/visitor/my-logs') %}active{% endif %}" href="/visitor/my-logs">
+        <span class="icon">📋</span> My Logs
+      </a>
+      {% elif current_user.role in ('admin', 'manager') %}
+      <a class="nav-link {% if request.url.path.startswith('/visitor/pending') %}active{% endif %}" href="/visitor/pending">
+        <span class="icon">⏳</span> Visitor Approvals
+      </a>
+      <a class="nav-link {% if request.url.path == '/visitor/' %}active{% endif %}" href="/visitor/">
+        <span class="icon">📋</span> Visitor Log
+      </a>
+      {% endif %}
+      {% endif %}
       {% if current_user and current_user.role in ('admin', 'manager') %}
       <div class="nav-section-title">Management</div>
       <a class="nav-link {% if request.url.path.startswith('/employees') %}active{% endif %}" href="/employees/">

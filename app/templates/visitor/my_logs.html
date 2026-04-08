@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}My Visitor Logs — EmpCRM{% endblock %}
+{% block page_title %}My Visitor Logs{% endblock %}
+
+{% block extra_head %}
+<style>
+  .vms-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; flex-wrap: wrap; gap: 10px;
+  }
+  .vms-toolbar h2 { font-size: 20px; font-weight: 700; color: var(--gray-800); margin: 0; }
+
+  .vms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  .log-card {
+    background: #fff;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--gray-200);
+    overflow: hidden;
+    transition: box-shadow .15s;
+  }
+  .log-card:hover { box-shadow: var(--shadow-md); }
+
+  .log-img-wrap {
+    width: 100%; height: 160px;
+    background: var(--gray-100);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative;
+  }
+  .log-img-wrap img {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .log-img-wrap .no-photo { font-size: 44px; color: var(--gray-300); }
+
+  /* status ribbon */
+  .status-ribbon {
+    position: absolute; top: 10px; right: 10px;
+    font-size: 11px; font-weight: 700; padding: 3px 10px;
+    border-radius: 99px; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .ribbon-pending  { background: #fef3c7; color: #92400e; }
+  .ribbon-approved { background: #dcfce7; color: #166534; }
+  .ribbon-rejected { background: #fee2e2; color: #991b1b; }
+
+  .log-body { padding: 14px 16px 16px; }
+  .log-name  { font-size: 15px; font-weight: 700; color: var(--gray-800); margin-bottom: 6px; }
+  .log-meta  { font-size: 12px; color: var(--gray-500); line-height: 1.7; }
+  .log-meta span { display: block; }
+  .log-meta .icon { margin-right: 4px; }
+
+  .vms-empty {
+    text-align: center; padding: 60px 20px;
+    color: var(--gray-400); font-size: 15px;
+  }
+  .vms-empty .big { font-size: 48px; display: block; margin-bottom: 12px; }
+
+  /* summary bar */
+  .summary-bar {
+    display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .summary-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 99px;
+    font-size: 12px; font-weight: 600;
+  }
+  .chip-total    { background: var(--gray-100); color: var(--gray-700); }
+  .chip-pending  { background: #fef3c7; color: #92400e; }
+  .chip-approved { background: #dcfce7; color: #166534; }
+  .chip-rejected { background: #fee2e2; color: #991b1b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vms-toolbar">
+  <h2>My Visitor Logs</h2>
+  <a href="/visitor/register" class="btn btn-sm" style="background:var(--primary);color:#fff;">
+    + Register New Visitor
+  </a>
+</div>
+
+{% if visitors %}
+{% set pending_count  = visitors | selectattr('status', 'equalto', 'pending')  | list | length %}
+{% set approved_count = visitors | selectattr('status', 'equalto', 'approved') | list | length %}
+{% set rejected_count = visitors | selectattr('status', 'equalto', 'rejected') | list | length %}
+
+<div class="summary-bar">
+  <span class="summary-chip chip-total">📋 Total: {{ visitors | length }}</span>
+  <span class="summary-chip chip-pending">⏳ Pending: {{ pending_count }}</span>
+  <span class="summary-chip chip-approved">✅ Approved: {{ approved_count }}</span>
+  <span class="summary-chip chip-rejected">❌ Rejected: {{ rejected_count }}</span>
+</div>
+
+<div class="vms-grid">
+  {% for v in visitors %}
+  <div class="log-card">
+    <div class="log-img-wrap">
+      {% if v.image_path %}
+      <img src="{{ v.image_path }}" alt="Photo of {{ v.name }}" loading="lazy" />
+      {% else %}
+      <span class="no-photo">🧑</span>
+      {% endif %}
+      <span class="status-ribbon ribbon-{{ v.status }}">
+        {% if v.status == 'approved' %}✅{% elif v.status == 'rejected' %}❌{% else %}⏳{% endif %}
+        {{ v.status | capitalize }}
+      </span>
+    </div>
+    <div class="log-body">
+      <div class="log-name">{{ v.name }}</div>
+      <div class="log-meta">
+        <span><span class="icon">📞</span>{{ v.phone }}</span>
+        <span><span class="icon">🎯</span>{{ v.purpose }}</span>
+        <span><span class="icon">🕒</span>{{ v.created_at.strftime('%d %b %Y, %H:%M') if v.created_at else '—' }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="vms-empty">
+  <span class="big">📭</span>
+  You haven't registered any visitors yet.<br>
+  <a href="/visitor/register" style="color:var(--primary);font-weight:600;">Register your first visitor &rarr;</a>
+</div>
+{% endif %}
+{% endblock %}

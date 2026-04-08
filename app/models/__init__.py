@@ -12,6 +12,7 @@ from app.models.meeting import Meeting
 from app.models.message import Message
 from app.models.location_log import LocationLog
 from app.models.task_comment import TaskComment
+from app.models.visitor import Visitor
 
 __all__ = [
     "User", "UserRole",
@@ -26,4 +27,5 @@ __all__ = [
     "Message",
     "LocationLog",
     "TaskComment",
+    "Visitor",
 ]

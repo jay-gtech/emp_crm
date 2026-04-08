@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Register Visitor — EmpCRM{% endblock %}
+{% block page_title %}Register Visitor{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Mobile-first visitor form ──────────────────────────────────── */
+  .vms-card {
+    max-width: 480px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    padding: 28px 24px 32px;
+  }
+  .vms-card h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--gray-800);
+    margin-bottom: 6px;
+  }
+  .vms-card .subtitle {
+    font-size: 13px;
+    color: var(--gray-400);
+    margin-bottom: 22px;
+  }
+  .vms-field { margin-bottom: 18px; }
+  .vms-field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-700);
+    margin-bottom: 6px;
+  }
+  .vms-field input,
+  .vms-field textarea,
+  .vms-field select {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 16px;          /* prevents iOS zoom */
+    border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius);
+    background: var(--gray-50);
+    color: var(--gray-800);
+    box-sizing: border-box;
+    transition: border-color .15s;
+    -webkit-appearance: none;
+  }
+  .vms-field input:focus,
+  .vms-field textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: #fff;
+  }
+  .vms-field textarea { resize: vertical; min-height: 80px; }
+
+  /* camera capture */
+  .camera-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px 16px;
+    border: 2px dashed var(--gray-300);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--gray-50);
+  }
+  .camera-label:hover { border-color: var(--primary); background: var(--primary-light); }
+  .camera-label .cam-icon { font-size: 36px; line-height: 1; }
+  .camera-label .cam-text { font-size: 14px; font-weight: 600; color: var(--gray-600); }
+  .camera-label .cam-hint { font-size: 11px; color: var(--gray-400); }
+  #imageInput { display: none; }
+  #preview-wrap { margin-top: 10px; text-align: center; display: none; }
+  #preview-wrap img { max-width: 100%; max-height: 200px; border-radius: var(--radius); border: 1px solid var(--gray-200); }
+
+  .vms-submit {
+    width: 100%;
+    padding: 16px;
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background .15s;
+    margin-top: 6px;
+  }
+  .vms-submit:hover { background: var(--primary-dark, #4338ca); }
+  .vms-submit:disabled { opacity: .65; cursor: not-allowed; }
+
+  .alert-success {
+    background: #dcfce7; border: 1px solid #86efac;
+    color: #166534; border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 18px;
+    font-size: 14px; font-weight: 600;
+  }
+  .alert-error {
+    background: #fee2e2; border: 1px solid #fca5a5;
+    color: #991b1b; border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 18px;
+    font-size: 14px;
+  }
+  .vms-links { text-align: center; margin-top: 16px; font-size: 13px; color: var(--gray-400); }
+  .vms-links a { color: var(--primary); font-weight: 600; text-decoration: none; }
+  .vms-links a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vms-card">
+  <h2>📷 Register Visitor</h2>
+  <p class="subtitle">Fill in visitor details and capture their photo.</p>
+
+  {% if success %}
+  <div class="alert-success">
+    ✅ Visitor registered successfully! Awaiting manager approval.
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="alert-error">⚠️ {{ error }}</div>
+  {% endif %}
+
+  {% if not success %}
+  <form method="post" action="/visitor/register" enctype="multipart/form-data" id="vmsForm">
+
+    <div class="vms-field">
+      <label for="name">Full Name *</label>
+      <input type="text" id="name" name="name" placeholder="e.g. John Doe"
+             required autocomplete="name" />
+    </div>
+
+    <div class="vms-field">
+      <label for="phone">Phone Number *</label>
+      <input type="tel" id="phone" name="phone" placeholder="e.g. +91 9876543210"
+             required autocomplete="tel" inputmode="tel" />
+    </div>
+
+    <div class="vms-field">
+      <label for="purpose">Purpose of Visit *</label>
+      <textarea id="purpose" name="purpose" placeholder="e.g. Interview, Delivery, Meeting with HR..."
+                required></textarea>
+    </div>
+
+    <div class="vms-field">
+      <label>Visitor Photo *</label>
+      <label class="camera-label" for="imageInput">
+        <span class="cam-icon">📸</span>
+        <span class="cam-text">Tap to capture or upload photo</span>
+        <span class="cam-hint">JPG / PNG · max 2 MB</span>
+      </label>
+      <!-- capture="environment" → rear camera on mobile -->
+      <input type="file" id="imageInput" name="image"
+             accept="image/jpeg,image/png,image/jpg"
+             capture="environment" required />
+      <div id="preview-wrap">
+        <img id="previewImg" src="" alt="Preview" />
+      </div>
+    </div>
+
+    <button type="submit" class="vms-submit" id="submitBtn">
+      Register Visitor
+    </button>
+  </form>
+  {% endif %}
+
+  <div class="vms-links">
+    {% if current_user and current_user.role in ('admin', 'manager') %}
+      <a href="/visitor/pending">View pending visitors &rarr;</a>
+    {% else %}
+      <a href="/dashboard/">Back to Dashboard</a>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function () {
+  const input   = document.getElementById('imageInput');
+  const preview = document.getElementById('previewImg');
+  const wrap    = document.getElementById('preview-wrap');
+  const form    = document.getElementById('vmsForm');
+  const btn     = document.getElementById('submitBtn');
+
+  if (input) {
+    input.addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+      if (!['image/jpeg','image/png','image/jpg'].includes(file.type)) {
+        alert('Only JPG/PNG images are allowed.');
+        this.value = '';
+        wrap.style.display = 'none';
+        return;
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        alert('Image must be smaller than 2 MB.');
+        this.value = '';
+        wrap.style.display = 'none';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        preview.src = e.target.result;
+        wrap.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (form && btn) {
+    form.addEventListener('submit', function () {
+      btn.disabled = true;
+      btn.textContent = 'Submitting…';
+    });
+  }
+})();
+</script>
+{% endblock %}

@@ -8,6 +8,7 @@ class UserRole(str, enum.Enum):
     manager = "manager"
     team_lead = "team_lead"
     employee = "employee"
+    security_guard = "security_guard"
 
 
 class User(Base):

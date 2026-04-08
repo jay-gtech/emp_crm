@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}All Visitors — EmpCRM{% endblock %}
+{% block page_title %}Visitor Log{% endblock %}
+
+{% block extra_head %}
+<style>
+  .vms-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; flex-wrap: wrap; gap: 10px;
+  }
+  .vms-toolbar h2 { font-size: 20px; font-weight: 700; color: var(--gray-800); margin: 0; }
+
+  .visitors-table-wrap {
+    background: #fff; border-radius: var(--radius);
+    box-shadow: var(--shadow-sm); border: 1px solid var(--gray-200);
+    overflow-x: auto;
+  }
+  .visitors-table {
+    width: 100%; border-collapse: collapse; font-size: 13.5px;
+  }
+  .visitors-table th {
+    text-align: left; padding: 12px 14px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--gray-500);
+    border-bottom: 1px solid var(--gray-200); white-space: nowrap;
+    background: var(--gray-50);
+  }
+  .visitors-table td {
+    padding: 12px 14px; border-bottom: 1px solid var(--gray-100);
+    color: var(--gray-700); vertical-align: middle;
+  }
+  .visitors-table tr:last-child td { border-bottom: none; }
+  .visitors-table tr:hover td { background: var(--gray-50); }
+
+  .thumb {
+    width: 44px; height: 44px; object-fit: cover;
+    border-radius: 6px; border: 1px solid var(--gray-200);
+  }
+  .no-thumb {
+    width: 44px; height: 44px; border-radius: 6px;
+    background: var(--gray-100); display: flex;
+    align-items: center; justify-content: center;
+    font-size: 22px; color: var(--gray-300);
+  }
+
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 2px 10px; border-radius: 99px;
+  }
+  .badge-pending  { background: #fef3c7; color: #92400e; }
+  .badge-approved { background: #dcfce7; color: #166534; }
+  .badge-rejected { background: #fee2e2; color: #991b1b; }
+
+  .vms-empty {
+    text-align: center; padding: 60px 20px;
+    color: var(--gray-400); font-size: 15px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vms-toolbar">
+  <h2>All Visitors</h2>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <a href="/visitor/register" class="btn btn-outline btn-sm">+ Register New</a>
+    <a href="/visitor/pending" class="btn btn-sm" style="background:var(--primary);color:#fff;">Pending</a>
+  </div>
+</div>
+
+{% if visitors %}
+<div class="visitors-table-wrap">
+  <table class="visitors-table">
+    <thead>
+      <tr>
+        <th>Photo</th>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Purpose</th>
+        <th>Status</th>
+        <th>Registered</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in visitors %}
+      <tr>
+        <td>
+          {% if v.image_path %}
+          <img src="{{ v.image_path }}" class="thumb" alt="{{ v.name }}" loading="lazy" />
+          {% else %}
+          <div class="no-thumb">🧑</div>
+          {% endif %}
+        </td>
+        <td style="font-weight:600;color:var(--gray-800)">{{ v.name }}</td>
+        <td>{{ v.phone }}</td>
+        <td>{{ v.purpose }}</td>
+        <td>
+          <span class="badge badge-{{ v.status }}">
+            {% if v.status == 'approved' %}✅{% elif v.status == 'rejected' %}❌{% else %}⏳{% endif %}
+            {{ v.status | capitalize }}
+          </span>
+        </td>
+        <td style="white-space:nowrap;color:var(--gray-400)">
+          {{ v.created_at.strftime('%d %b %Y, %H:%M') if v.created_at else '—' }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<div class="vms-empty">No visitors have been registered yet.</div>
+{% endif %}
+{% endblock %}

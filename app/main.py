@@ -203,6 +203,12 @@ app.include_router(api.router)
 app.include_router(auto_assign.router)
 app.include_router(admin_router.router)
 app.include_router(location_router.router)
+try:
+    from app.routes import visitor as visitor_router
+    app.include_router(visitor_router.router)
+except Exception as _vms_exc:
+    _log.warning("[startup] visitor router skipped: %s", _vms_exc)
+
 from app.routes import announcements
 app.include_router(announcements.router, prefix="/announcements")
 from app.routes import meetings
