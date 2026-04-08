@@ -1,82 +1,254 @@
 {% extends "base.html" %}
-{% block title %}Announcements — Employee CRM{% endblock %}
+{% block title %}Announcements — EmpCRM{% endblock %}
 {% block page_title %}Announcements{% endblock %}
-{% block content %}
 
+{% block extra_head %}
+<style>
+/* ── Banners ───────────────────────────────────────── */
+.ann-banner {
+  border-radius: var(--radius); padding: 12px 16px;
+  font-size: 14px; font-weight: 600; margin-bottom: 18px;
+  display: flex; align-items: center; gap: 8px;
+}
+.ann-banner-success { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+.ann-banner-error   { background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
+
+/* ── Create form card ──────────────────────────────── */
+.ann-form-card {
+  background: #fff; border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-100);
+  border-left: 4px solid var(--primary);
+  padding: 22px 24px; margin-bottom: 24px;
+}
+.ann-form-card h3 {
+  font-size: 15px; font-weight: 700; color: var(--gray-800);
+  margin-bottom: 16px;
+}
+.ann-field { margin-bottom: 14px; }
+.ann-field label {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--gray-600); margin-bottom: 5px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.ann-field input[type="text"],
+.ann-field textarea,
+.ann-field select {
+  width: 100%; padding: 11px 14px; font-size: 14px;
+  border: 1.5px solid var(--gray-200); border-radius: var(--radius);
+  background: var(--gray-50); color: var(--gray-800);
+  box-sizing: border-box; transition: border-color .15s;
+  font-family: inherit; -webkit-appearance: none;
+}
+.ann-field input:focus,
+.ann-field textarea:focus,
+.ann-field select:focus {
+  outline: none; border-color: var(--primary); background: #fff;
+}
+.ann-field textarea { resize: vertical; min-height: 88px; }
+.ann-submit {
+  padding: 11px 24px; font-size: 14px; font-weight: 700;
+  background: var(--primary); color: #fff; border: none;
+  border-radius: var(--radius); cursor: pointer; transition: opacity .15s;
+}
+.ann-submit:hover { opacity: .88; }
+
+/* specific-audience picker */
+.specific-box {
+  display: none; background: var(--gray-50);
+  border: 1px solid var(--gray-200); border-radius: var(--radius);
+  padding: 12px; max-height: 200px; overflow-y: auto; margin-top: 8px;
+}
+.specific-box label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 4px; font-size: 13px; font-weight: 400;
+  color: var(--gray-700); cursor: pointer; text-transform: none;
+  letter-spacing: 0;
+}
+.specific-box input[type="checkbox"] { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ── Announcement feed ─────────────────────────────── */
+.ann-feed { display: flex; flex-direction: column; gap: 12px; }
+
+.ann-card {
+  background: #fff; border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-100);
+  padding: 18px 20px; transition: box-shadow .15s;
+}
+.ann-card:hover { box-shadow: var(--shadow-md); }
+
+.ann-card-top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.ann-title {
+  font-size: 15px; font-weight: 700; color: var(--gray-900);
+  margin: 0; line-height: 1.35;
+}
+.ann-badges { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.ann-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 9px;
+  border-radius: 99px; text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-admin     { background: #e0e7ff; color: #3730a3; }
+.badge-manager   { background: #dbeafe; color: #1e40af; }
+.badge-team-lead { background: #ede9fe; color: #6d28d9; }
+.badge-all       { background: #dcfce7; color: #166534; }
+.badge-team      { background: #fef3c7; color: #92400e; }
+.badge-specific  { background: #fee2e2; color: #991b1b; }
+
+.ann-sender { font-size: 12px; color: var(--gray-500); margin-bottom: 6px; }
+.ann-body   { font-size: 14px; color: var(--gray-700); line-height: 1.6; white-space: pre-line; }
+.ann-time   { font-size: 11px; color: var(--gray-400); margin-top: 10px; }
+
+/* empty state */
+.ann-empty {
+  text-align: center; padding: 52px 24px;
+  background: #fff; border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); border: 1px solid var(--gray-100);
+}
+.ann-empty .icon { font-size: 44px; display: block; margin-bottom: 12px; }
+.ann-empty p { color: var(--gray-400); font-size: 14px; margin: 0; }
+
+/* header row */
+.ann-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px; flex-wrap: wrap; gap: 8px;
+}
+.ann-header h2 { font-size: 16px; font-weight: 700; color: var(--gray-800); margin: 0; }
+.ann-count {
+  font-size: 12px; font-weight: 600; background: var(--gray-100);
+  color: var(--gray-600); padding: 3px 12px; border-radius: 99px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
 <div style="max-width:860px;">
 
-  <!-- ── Create form (admin / manager / team_lead only) ──────────────────── -->
-  {% if current_user.role in ['admin', 'manager', 'team_lead'] %}
-  <div class="card" style="margin-bottom:24px; border-left:4px solid var(--primary);">
-    <div class="card-header">
-      <h2 style="font-size:15px;">📢 Post an Announcement</h2>
+{% if flash == 'created' %}
+<div class="ann-banner ann-banner-success">✅ Announcement posted successfully.</div>
+{% endif %}
+{% if error %}
+<div class="ann-banner ann-banner-error">⚠️ {{ error }}</div>
+{% endif %}
+
+{# ── Create form (admin / manager / team_lead) ──────────────── #}
+{% if current_user.role in ('admin', 'manager', 'team_lead') %}
+<div class="ann-form-card">
+  <h3>📢 Post an Announcement</h3>
+  <form method="post" action="/announcements/create" id="annForm">
+
+    <div class="ann-field">
+      <label for="ann-title">Title *</label>
+      <input type="text" id="ann-title" name="title"
+             placeholder="Announcement title…" required />
     </div>
-    <div class="card-body">
-      <form method="post" action="/announcements/create"
-            style="display:flex; flex-direction:column; gap:12px;">
-        <div>
-          <label class="form-label">Title</label>
-          <input type="text" name="title" class="form-control"
-                 placeholder="Announcement title…" required>
-        </div>
-        <div>
-          <label class="form-label">Message</label>
-          <textarea name="message" class="form-control" rows="3"
-                    placeholder="Write your announcement here…" required></textarea>
-        </div>
-        <div>
-          <button type="submit" class="btn btn-primary">Post Announcement</button>
-        </div>
-      </form>
+
+    <div class="ann-field">
+      <label for="ann-msg">Message *</label>
+      <textarea id="ann-msg" name="message"
+                placeholder="Write your announcement here…" required></textarea>
+    </div>
+
+    <div class="ann-field">
+      <label for="ann-audience">Audience</label>
+      <select id="ann-audience" name="audience_type" onchange="handleAudience(this.value)">
+        <option value="all">Everyone</option>
+        <option value="team">My Team</option>
+        {% if current_user.role in ('admin', 'manager') %}
+        <option value="specific">Specific People</option>
+        {% endif %}
+      </select>
+    </div>
+
+    {% if users_for_picker %}
+    <div class="specific-box" id="specificBox">
+      <p style="font-size:12px;color:var(--gray-500);margin:0 0 8px">
+        Select users to receive this announcement:
+      </p>
+      {% for u in users_for_picker %}
+      <label>
+        <input type="checkbox" name="uid_checks" value="{{ u.id }}" />
+        {{ u.name }}
+        <span style="font-size:10px;color:var(--gray-400)">({{ u.role }})</span>
+      </label>
+      {% endfor %}
+    </div>
+    <input type="hidden" name="target_ids_raw" id="targetIdsRaw" value="" />
+    {% endif %}
+
+    <button type="submit" class="ann-submit">Post Announcement</button>
+  </form>
+</div>
+{% endif %}
+
+{# ── Feed ─────────────────────────────────────────────────────── #}
+<div class="ann-header">
+  <h2>📋 Announcements</h2>
+  <span class="ann-count">{{ announcements | length }} visible to you</span>
+</div>
+
+{% if announcements %}
+<div class="ann-feed">
+  {% for a in announcements %}
+  <div class="ann-card">
+    <div class="ann-card-top">
+      <h3 class="ann-title">{{ a.title }}</h3>
+      <div class="ann-badges">
+        {# Sender role badge #}
+        {% if a.sender_role == 'admin' %}
+        <span class="ann-badge badge-admin">Admin</span>
+        {% elif a.sender_role == 'manager' %}
+        <span class="ann-badge badge-manager">Manager</span>
+        {% elif a.sender_role == 'team_lead' %}
+        <span class="ann-badge badge-team-lead">Team Lead</span>
+        {% endif %}
+        {# Audience badge #}
+        {% if a.audience_type == 'all' %}
+        <span class="ann-badge badge-all">Everyone</span>
+        {% elif a.audience_type == 'team' %}
+        <span class="ann-badge badge-team">Team</span>
+        {% elif a.audience_type == 'specific' %}
+        <span class="ann-badge badge-specific">Targeted</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="ann-sender">From {{ a.sender_name }}</div>
+    <div class="ann-body">{{ a.message }}</div>
+    <div class="ann-time">
+      {{ a.created_at.strftime('%d %b %Y · %I:%M %p') if a.created_at else '—' }}
     </div>
   </div>
-  {% endif %}
+  {% endfor %}
+</div>
 
-  <!-- ── Announcement list ───────────────────────────────────────────────── -->
-  <div class="card">
-    <div class="card-header">
-      <h2 style="font-size:15px;">📋 All Announcements</h2>
-      <span class="text-muted text-sm">{{ announcements | length }} visible to you</span>
-    </div>
-    <div class="card-body" style="padding:0;">
-
-      {% if announcements %}
-      <div style="display:flex; flex-direction:column;">
-        {% for a in announcements %}
-        <div style="padding:18px 20px; border-bottom:1px solid var(--gray-100);"
-             class="announcement-row">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;
-                      gap:12px; flex-wrap:wrap; margin-bottom:6px;">
-            <h3 style="margin:0; font-size:15px; font-weight:700;
-                       color:var(--gray-900);">{{ a.title }}</h3>
-            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-              <span class="badge
-                {% if a.sender_role == 'admin' %}badge-primary
-                {% elif a.sender_role == 'manager' %}badge-info
-                {% else %}badge-gray{% endif %}"
-                style="font-size:10px; text-transform:capitalize;">
-                {{ a.sender_role.replace('_', ' ') }}
-              </span>
-              <span style="font-size:11px; color:var(--gray-400);">
-                {{ a.created_at.strftime('%b %d, %Y · %I:%M %p') }}
-              </span>
-            </div>
-          </div>
-          <p style="margin:0; font-size:13.5px; color:var(--gray-700);
-                    line-height:1.55; white-space:pre-line;">{{ a.message }}</p>
-        </div>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div style="padding:48px 20px; text-align:center;">
-        <div style="font-size:40px; margin-bottom:10px;">📭</div>
-        <p class="text-muted" style="margin:0;">No announcements visible to you right now.</p>
-      </div>
-      {% endif %}
-
-    </div>
-  </div>
+{% else %}
+<div class="ann-empty">
+  <span class="icon">📭</span>
+  <p>No announcements visible to you right now.</p>
+</div>
+{% endif %}
 
 </div>
 
+<script>
+(function () {
+  function handleAudience(val) {
+    const box = document.getElementById('specificBox');
+    if (box) box.style.display = (val === 'specific') ? 'block' : 'none';
+  }
+  window.handleAudience = handleAudience;
+
+  // On submit: collect checked user IDs into the hidden field
+  const form = document.getElementById('annForm');
+  if (form) {
+    form.addEventListener('submit', function () {
+      const checks = form.querySelectorAll('input[name="uid_checks"]:checked');
+      const ids    = Array.from(checks).map(c => c.value).join(',');
+      const hidden = document.getElementById('targetIdsRaw');
+      if (hidden) hidden.value = ids;
+    });
+  }
+})();
+</script>
 {% endblock %}

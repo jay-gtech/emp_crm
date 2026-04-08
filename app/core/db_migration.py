@@ -110,6 +110,17 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
         "is_delayed",
         "ALTER TABLE tasks ADD COLUMN is_delayed BOOLEAN DEFAULT 0 NOT NULL;",
     ),
+    # ── Announcement audience targeting ────────────────────────────────────────
+    (
+        "announcements",
+        "audience_type",
+        "ALTER TABLE announcements ADD COLUMN audience_type VARCHAR(20) DEFAULT 'all';",
+    ),
+    (
+        "announcements",
+        "target_ids",
+        "ALTER TABLE announcements ADD COLUMN target_ids TEXT;",
+    ),
 ]
 
 

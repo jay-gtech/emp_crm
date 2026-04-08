@@ -15,6 +15,7 @@ from app.models.task_comment import TaskComment
 from app.models.visitor import Visitor
 from app.models.report import Report
 from app.models.eod_report import EODReport
+from app.models.expense import ExpenseGroup, ExpenseMember
 
 __all__ = [
     "User", "UserRole",
@@ -32,4 +33,6 @@ __all__ = [
     "Visitor",
     "Report",
     "EODReport",
+    "ExpenseGroup",
+    "ExpenseMember",
 ]

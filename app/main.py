@@ -217,6 +217,12 @@ except Exception as _rpt_exc:
 
 from app.routes import announcements
 app.include_router(announcements.router, prefix="/announcements")
+
+try:
+    from app.routes import expense as expense_router
+    app.include_router(expense_router.router)
+except Exception as _exp_exc:
+    _log.warning("[startup] expense router skipped: %s", _exp_exc)
 from app.routes import meetings
 app.include_router(meetings.router, prefix="/meetings")
 from app.routes import chat

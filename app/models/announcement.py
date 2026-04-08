@@ -12,4 +12,6 @@ class Announcement(Base):
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    sender_role = Column(String)  # admin / manager / team_lead
+    sender_role   = Column(String)                     # admin / manager / team_lead
+    audience_type = Column(String(20), default="all")  # all / team / specific
+    target_ids    = Column(Text, nullable=True)        # JSON list of user IDs for "specific"
