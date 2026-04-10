@@ -230,11 +230,40 @@
       </div>
       <div class="form-group">
         <label class="form-label">Assign To *</label>
+        {# ── Grouped hierarchy dropdown ── #}
         <select name="assigned_to" class="form-control" required>
-          <option value="">-- Select Employee --</option>
-          {% for emp in employees %}
-          <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.department or 'No Dept' }})</option>
+          <option value="">-- Select Person --</option>
+          {# Build role-grouped lists #}
+          {% set mgr_list = [] %}
+          {% set tl_list  = [] %}
+          {% set emp_list = [] %}
+          {% for p in employees %}
+            {% if p.role.value == 'manager'   %}{% if mgr_list.append(p) %}{% endif %}
+            {% elif p.role.value == 'team_lead' %}{% if tl_list.append(p) %}{% endif %}
+            {% else %}{% if emp_list.append(p) %}{% endif %}
+            {% endif %}
           {% endfor %}
+          {% if mgr_list %}
+          <optgroup label="Managers">
+            {% for p in mgr_list %}
+            <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+          {% if tl_list %}
+          <optgroup label="Team Leads">
+            {% for p in tl_list %}
+            <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+          {% if emp_list %}
+          <optgroup label="Employees">
+            {% for p in emp_list %}
+            <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
         </select>
       </div>
       <div class="form-group" style="grid-column:1/-1">
@@ -266,10 +295,12 @@
 </div>
 {% endif %}
 
-<!-- ── Employee name lookup map ────────────────────────────────────── -->
-{% set emp_map = {} %}
+<!-- ── Employee name + role lookup maps ─────────────────────────── -->
+{% set emp_map  = {} %}
+{% set role_map = {} %}
 {% for emp in employees %}
   {% if emp_map.update({emp.id: emp.name}) %}{% endif %}
+  {% if role_map.update({emp.id: emp.role.value}) %}{% endif %}
 {% endfor %}
 
 <!-- ── Task list ───────────────────────────────────────────────────── -->
@@ -292,13 +323,20 @@
         <option value="medium">Medium</option>
         <option value="low">Low</option>
       </select>
+      {% if current_user.role in ('admin', 'manager') %}
+      {# Toggle to show/hide employee-level tasks #}
+      <button id="empToggleBtn" class="btn btn-outline btn-sm" onclick="toggleEmployeeTasks()"
+              title="Show/Hide tasks assigned to employees">
+        👤 Show Employee Tasks
+      </button>
+      {% endif %}
       {% if current_user.role in ('admin', 'manager', 'team_lead') %}
       <a href="/api/tasks/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
       {% endif %}
     </div>
   </div>
   <div class="table-wrap" style="overflow-x:auto">
-    <table id="taskTable" style="min-width:1050px">
+    <table id="taskTable" class="table-sticky" style="min-width:1050px">
       <thead>
         <tr>
           <th>#</th><th>Title</th><th>Assigned To</th><th>Priority</th>
@@ -313,7 +351,8 @@
         {% set uid = current_user.user_id %}
         <tr data-title="{{ task.title | lower }}"
             data-status="{{ sv }}"
-            data-priority="{{ task.priority.value }}">
+            data-priority="{{ task.priority.value }}"
+            data-assignee-role="{{ role_map.get(task.assigned_to, 'employee') }}">
           <td class="text-muted">#{{ task.id }}</td>
           <td>
             <strong>{{ task.title }}</strong>
@@ -440,6 +479,19 @@
 </div>
 
 <script>
+/* ── Employee task toggle (admin/manager) ────────────────────────── */
+let _showEmpTasks = false;
+function toggleEmployeeTasks() {
+  _showEmpTasks = !_showEmpTasks;
+  const btn = document.getElementById('empToggleBtn');
+  if (btn) {
+    btn.textContent = _showEmpTasks ? '👤 Hide Employee Tasks' : '👤 Show Employee Tasks';
+    btn.style.background = _showEmpTasks ? 'var(--primary)' : '';
+    btn.style.color      = _showEmpTasks ? '#fff' : '';
+  }
+  filterTasks();
+}
+
 /* ── Filter ──────────────────────────────────────────────────────── */
 function filterTasks() {
   const search   = document.getElementById('taskSearch').value.toLowerCase();
@@ -448,12 +500,16 @@ function filterTasks() {
   const rows     = document.querySelectorAll('#taskTable tbody tr[data-title]');
   let visible    = 0;
   rows.forEach(row => {
-    const ok = (!search   || row.dataset.title.includes(search))
+    const assigneeRole = row.dataset.assigneeRole || '';
+    const isEmployee   = assigneeRole === 'employee';
+    // Hide employee tasks unless toggle is on (only for admin/manager)
+    const empHidden = isEmployee && !_showEmpTasks && document.getElementById('empToggleBtn');
+
+    const ok = !empHidden
+            && (!search   || row.dataset.title.includes(search))
             && (!status   || row.dataset.status   === status)
             && (!priority || row.dataset.priority === priority);
     row.style.display = ok ? '' : 'none';
-    // Hide associated comment row too
-    const cRow = document.getElementById('comment-row-' + (row.querySelector('[data-title]') ? '' : ''));
     if (ok) visible++;
   });
   const noMatch = document.getElementById('noFilterMatch');
@@ -525,6 +581,11 @@ function escHtml(s) {
   d.textContent = String(s);
   return d.innerHTML;
 }
+
+// Hide employee tasks by default for admin/manager on load
+document.addEventListener('DOMContentLoaded', function () {
+  if (document.getElementById('empToggleBtn')) filterTasks();
+});
 </script>
 
 {% endblock %}

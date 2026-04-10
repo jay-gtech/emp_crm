@@ -1,0 +1,493 @@
+{#
+  tree_component.html — Reusable hierarchy tree macros for Employee CRM.
+
+  Usage:
+    {% from "components/tree_component.html" import org_tree,
+       attendance_admin_panel, attendance_manager_panel, attendance_tl_panel %}
+#}
+
+{# ── Shared CSS (injected once via caller's extra_head block) ── #}
+{% macro tree_styles() %}
+<style>
+/* ── Design tokens (tree-local) ───────────────────────────────────── */
+:root {
+  --tree-dur: 220ms;
+  --tree-ease: cubic-bezier(.4,0,.2,1);
+}
+
+/* ── Tree scroll container ────────────────────────────────────────── */
+.tree-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-200, #e5e7eb) transparent;
+}
+.tree-scroll::-webkit-scrollbar { width: 5px; }
+.tree-scroll::-webkit-scrollbar-track { background: transparent; }
+.tree-scroll::-webkit-scrollbar-thumb { background: var(--gray-200, #e5e7eb); border-radius: 99px; }
+
+/* ── Tree container ───────────────────────────────────────────────── */
+.crm-tree { font-size: 13.5px; }
+.tree-group { margin: 0; }
+
+/* ── Node rows ────────────────────────────────────────────────────── */
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--tree-dur) var(--tree-ease), transform 80ms;
+  user-select: none;
+  position: relative;
+}
+.tree-node:hover  { background: var(--gray-50, #f9fafb); }
+.tree-node:active { transform: scale(.985); }
+
+.tree-node.tree-manager { background: #eef2ff; font-weight: 700; border-left: 3px solid #6366f1; }
+.tree-node.tree-manager:hover { background: #e0e7ff; }
+.tree-node.tree-tl { background: #f0fdf4; font-weight: 600; border-left: 3px solid #22c55e; padding-left: 28px; }
+.tree-node.tree-tl:hover { background: #dcfce7; }
+.tree-node.tree-emp { padding-left: 52px; color: var(--gray-700, #374151); cursor: default; }
+.tree-node.tree-emp:hover { background: var(--gray-50, #f9fafb); }
+
+/* ── Toggle caret (SVG chevron) ───────────────────────────────────── */
+.tree-caret {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--tree-dur) var(--tree-ease);
+  color: var(--gray-400, #9ca3af);
+}
+.tree-caret svg { width: 12px; height: 12px; fill: currentColor; }
+.tree-caret.open { transform: rotate(90deg); }
+
+/* ── Person icon ──────────────────────────────────────────────────── */
+.tree-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .75;
+}
+.tree-icon svg { width: 16px; height: 16px; }
+
+/* ── Labels & badges ──────────────────────────────────────────────── */
+.tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-dept { font-size: 11px; color: var(--gray-400, #9ca3af); white-space: nowrap; }
+.tree-role-badge {
+  font-size: 10px; font-weight: 700; padding: 1px 7px;
+  border-radius: 99px; white-space: nowrap; flex-shrink: 0;
+  text-transform: capitalize;
+}
+.badge-manager-role { background: #e0e7ff; color: #3730a3; }
+.badge-tl-role      { background: #d1fae5; color: #065f46; }
+.badge-emp-role     { background: #f3f4f6; color: #374151; }
+.tree-count { font-size: 11px; color: var(--gray-400); white-space: nowrap; }
+
+/* ── Children panel — height-animated ────────────────────────────── */
+.tree-children {
+  overflow: hidden;
+  height: 0;
+  border-left: 2px dashed var(--gray-200, #e5e7eb);
+  margin-left: 20px;
+  transition: height var(--tree-dur) var(--tree-ease);
+}
+
+/* ── Empty / no-data ──────────────────────────────────────────────── */
+.tree-leaf-empty {
+  padding: 6px 14px 6px 52px;
+  font-size: 12px;
+  color: var(--gray-400, #9ca3af);
+  font-style: italic;
+}
+.tree-empty-state {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--gray-400, #9ca3af);
+}
+.tree-empty-state .es-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+
+/* ── Attendance row extras ────────────────────────────────────────── */
+.att-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+.att-chip {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+  white-space: nowrap;
+}
+.chip-present { background: #d1fae5; color: #065f46; }
+.chip-remote  { background: #dbeafe; color: #1e40af; }
+.chip-absent  { background: #fee2e2; color: #991b1b; }
+.chip-working { background: #fef3c7; color: #92400e; }
+.chip-done    { background: #d1fae5; color: #065f46; }
+.chip-late    { background: #fef3c7; color: #92400e; }
+
+/* ── Summary bar ──────────────────────────────────────────────────── */
+.att-summary-bar {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--gray-50, #f9fafb);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--gray-100, #f3f4f6);
+}
+.att-summary-item { text-align: center; }
+.att-summary-val  { font-size: 22px; font-weight: 800; }
+.att-summary-lbl  { font-size: 11px; color: var(--gray-400); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+
+/* ── Mobile responsive ────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .tree-dept  { display: none; }
+  .tree-count { display: none; }
+  .tree-node  { padding: 12px 10px; min-height: 44px; }
+  .att-chips  { gap: 4px; }
+  .att-summary-bar { gap: 10px; }
+  .tree-scroll { max-height: 300px; }
+}
+</style>
+{% endmacro %}
+
+
+{# ── SVG icon snippets (used inside macros) ── #}
+{% macro _svg_chevron() %}<svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L9.19 8 6.22 5.03a.75.75 0 0 1 0-1.06Z"/></svg>{% endmacro %}
+{% macro _svg_person() %}<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-5 6a5 5 0 0 1 10 0H3Z"/></svg>{% endmacro %}
+{% macro _svg_manager() %}<svg viewBox="0 0 16 16" fill="currentColor"><path d="M7 14s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H7Zm4-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path fill-rule="evenodd" d="M5.216 14A2.238 2.238 0 0 1 5 13c0-1.355.68-2.75 1.936-3.72A6.325 6.325 0 0 0 5 9c-4 0-5 3-5 4s1 1 1 1h4.216Z"/><path d="M4.5 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/></svg>{% endmacro %}
+{% macro _svg_tl() %}<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-5 6s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H1Z"/><path d="M13.5 5a.5.5 0 0 1 .5.5v2h2a.5.5 0 0 1 0 1h-2v2a.5.5 0 0 1-1 0v-2h-2a.5.5 0 0 1 0-1h2v-2a.5.5 0 0 1 .5-.5Z"/></svg>{% endmacro %}
+
+
+{# ─────────────────────────────────────────────────────────────────────────
+   MACRO: org_tree
+   Renders a full Manager → Team Lead → Employee hierarchy tree.
+   hierarchy: output of get_full_hierarchy()
+──────────────────────────────────────────────────────────────────────────── #}
+{% macro org_tree(hierarchy, label="Org Hierarchy") %}
+<div class="tree-scroll">
+<div class="crm-tree" id="orgTree">
+  {% if hierarchy %}
+    {% for mgr in hierarchy %}
+    <div class="tree-group" style="margin-bottom:4px">
+
+      {# Manager node #}
+      <div class="tree-node tree-manager" onclick="toggleTreeNode(this)">
+        <span class="tree-caret">{{ _svg_chevron() }}</span>
+        <span class="tree-icon" style="color:#6366f1">{{ _svg_manager() }}</span>
+        <span class="tree-name">{{ mgr.name }}</span>
+        {% if mgr.department %}<span class="tree-dept">{{ mgr.department }}</span>{% endif %}
+        <span class="tree-role-badge badge-manager-role">Manager</span>
+        <span class="tree-count">{{ mgr.team_leads | length }} TL{{ 's' if mgr.team_leads|length != 1 else '' }}</span>
+      </div>
+
+      {# TL children #}
+      <div class="tree-children">
+        {% if mgr.team_leads %}
+          {% for tl in mgr.team_leads %}
+          <div class="tree-group">
+
+            {# Team Lead node #}
+            <div class="tree-node tree-tl" onclick="toggleTreeNode(this)">
+              <span class="tree-caret">{{ _svg_chevron() }}</span>
+              <span class="tree-icon" style="color:#22c55e">{{ _svg_tl() }}</span>
+              <span class="tree-name">{{ tl.name }}</span>
+              {% if tl.department %}<span class="tree-dept">{{ tl.department }}</span>{% endif %}
+              <span class="tree-role-badge badge-tl-role">Team Lead</span>
+              <span class="tree-count">{{ tl.employees | length }} emp{{ 's' if tl.employees|length != 1 else '' }}</span>
+            </div>
+
+            {# Employee children #}
+            <div class="tree-children">
+              {% if tl.employees %}
+                {% for emp in tl.employees %}
+                <div class="tree-node tree-emp">
+                  <span style="width:16px;flex-shrink:0"></span>
+                  <span class="tree-icon" style="color:#6b7280">{{ _svg_person() }}</span>
+                  <span class="tree-name">{{ emp.name }}</span>
+                  {% if emp.department %}<span class="tree-dept">{{ emp.department }}</span>{% endif %}
+                  <span class="tree-role-badge badge-emp-role">Employee</span>
+                </div>
+                {% endfor %}
+              {% else %}
+                <div class="tree-leaf-empty">No employees assigned</div>
+              {% endif %}
+            </div>
+
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="tree-leaf-empty">No team leads assigned</div>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="tree-empty-state">
+      <span class="es-icon">🌿</span>
+      <p>No hierarchy data available.</p>
+    </div>
+  {% endif %}
+</div>
+</div>
+{% endmacro %}
+
+
+{# ─────────────────────────────────────────────────────────────────────────
+   MACRO: attendance_admin_panel
+   Admin org-wide attendance view using admin_attendance context var.
+   admin_attendance: {rows: [...], summary: {...}}
+──────────────────────────────────────────────────────────────────────────── #}
+{% macro attendance_admin_panel(admin_attendance) %}
+{% set rows    = admin_attendance.rows    if admin_attendance else [] %}
+{% set summary = admin_attendance.summary if admin_attendance else {} %}
+
+{# Summary bar #}
+<div class="att-summary-bar">
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:var(--primary)">{{ summary.total_clocked_in or 0 }}</div>
+    <div class="att-summary-lbl">Clocked In</div>
+  </div>
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:#16a34a">{{ summary.office or 0 }}</div>
+    <div class="att-summary-lbl">In Office</div>
+  </div>
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:#2563eb">{{ summary.remote or 0 }}</div>
+    <div class="att-summary-lbl">Remote</div>
+  </div>
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:#9ca3af">{{ summary.clocked_out or 0 }}</div>
+    <div class="att-summary-lbl">Clocked Out</div>
+  </div>
+</div>
+
+{# Attendance rows #}
+{% if rows %}
+<div class="table-wrap">
+  <table class="table-sticky">
+    <thead>
+      <tr>
+        <th>Name</th><th>Role</th><th>Dept</th>
+        <th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Mode</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td style="font-weight:600">{{ r.employee_name }}</td>
+        <td><span class="tree-role-badge badge-{{ 'manager-role' if r.role == 'manager' else ('tl-role' if r.role == 'team_lead' else 'emp-role') }}" style="font-size:10px">{{ r.role.replace('_',' ') }}</span></td>
+        <td class="text-muted text-sm">{{ r.department or '—' }}</td>
+        <td>{{ r.clock_in.strftime('%H:%M') if r.clock_in else '—' }}</td>
+        <td>{{ r.clock_out.strftime('%H:%M') if r.clock_out else '—' }}</td>
+        <td>
+          {% if r.total_hours %}<span class="att-chip chip-done">{{ r.total_hours }}h</span>
+          {% elif r.clock_in and not r.clock_out %}<span class="att-chip chip-working">Working</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if r.work_mode == 'office' %}<span class="att-chip chip-present">Office</span>
+          {% elif r.work_mode == 'remote' %}<span class="att-chip chip-remote">Remote</span>
+          {% else %}<span style="color:var(--gray-300)">—</span>{% endif %}
+        </td>
+        <td>
+          {% if r.clock_in %}
+            <span class="att-chip chip-present">Present</span>
+          {% else %}
+            <span class="att-chip chip-absent">Absent</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="tree-empty-state">
+  <span class="es-icon">📭</span>
+  <p>No attendance records for today yet.</p>
+</div>
+{% endif %}
+{% endmacro %}
+
+
+{# ─────────────────────────────────────────────────────────────────────────
+   MACRO: attendance_manager_panel
+   Manager team attendance tree. manager_team_attendance is a list of
+   {team_lead_name, team_lead_dept, employees: [{name, clock_in, ...}]}
+──────────────────────────────────────────────────────────────────────────── #}
+{% macro attendance_manager_panel(team_attendance) %}
+{% if team_attendance %}
+<div class="tree-scroll">
+<div class="crm-tree">
+  {% for tl_group in team_attendance %}
+  <div class="tree-group" style="margin-bottom:4px">
+
+    {# Team Lead header node #}
+    <div class="tree-node tree-tl" onclick="toggleTreeNode(this)">
+      <span class="tree-caret">{{ _svg_chevron() }}</span>
+      <span class="tree-icon" style="color:#22c55e">{{ _svg_tl() }}</span>
+      <span class="tree-name">{{ tl_group.team_lead_name }}</span>
+      {% if tl_group.team_lead_dept %}<span class="tree-dept">{{ tl_group.team_lead_dept }}</span>{% endif %}
+      <span class="tree-role-badge badge-tl-role">Team Lead</span>
+      <div class="att-chips" style="margin-left:auto">
+        {% set present = tl_group.employees | selectattr('clocked_in') | list | length %}
+        {% set total   = tl_group.employees | length %}
+        <span class="att-chip chip-present">{{ present }}/{{ total }} present</span>
+      </div>
+    </div>
+
+    {# Employee children #}
+    <div class="tree-children">
+      {% if tl_group.employees %}
+        {% for emp in tl_group.employees %}
+        <div class="tree-node tree-emp">
+          <span style="width:16px;flex-shrink:0"></span>
+          <span class="tree-icon" style="color:#6b7280">{{ _svg_person() }}</span>
+          <span class="tree-name">{{ emp.name }}</span>
+          {% if emp.department %}<span class="tree-dept">{{ emp.department }}</span>{% endif %}
+          <div class="att-chips">
+            {# Clock in time #}
+            {% if emp.clock_in %}
+              <span class="att-chip chip-present">In {{ emp.clock_in.strftime('%H:%M') }}</span>
+            {% else %}
+              <span class="att-chip chip-absent">Absent</span>
+            {% endif %}
+            {# Clock out #}
+            {% if emp.clock_out %}
+              <span class="att-chip chip-done">Out {{ emp.clock_out.strftime('%H:%M') }}</span>
+            {% elif emp.clocked_in %}
+              <span class="att-chip chip-working">Working</span>
+            {% endif %}
+            {# Mode #}
+            {% if emp.work_mode == 'office' %}<span class="att-chip chip-present">Office</span>
+            {% elif emp.work_mode == 'remote' %}<span class="att-chip chip-remote">Remote</span>
+            {% endif %}
+            {# Hours #}
+            {% if emp.total_hours %}<span style="font-size:11px;color:var(--gray-500)">{{ emp.total_hours }}h</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="tree-leaf-empty">No employees under this team lead</div>
+      {% endif %}
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+</div>
+{% else %}
+<div class="tree-empty-state">
+  <span class="es-icon">👥</span>
+  <p>No team leads assigned to you yet.</p>
+</div>
+{% endif %}
+{% endmacro %}
+
+
+{# ─────────────────────────────────────────────────────────────────────────
+   MACRO: attendance_tl_panel
+   Team Lead's team attendance. tl_attendance: {rows: [...], summary: {...}}
+──────────────────────────────────────────────────────────────────────────── #}
+{% macro attendance_tl_panel(tl_attendance) %}
+{% set rows    = tl_attendance.rows    if tl_attendance else [] %}
+{% set summary = tl_attendance.summary if tl_attendance else {} %}
+
+{# Summary bar #}
+<div class="att-summary-bar">
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:var(--primary)">{{ summary.total or 0 }}</div>
+    <div class="att-summary-lbl">Total</div>
+  </div>
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:#16a34a">{{ summary.clocked_in or 0 }}</div>
+    <div class="att-summary-lbl">Present</div>
+  </div>
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:#ef4444">{{ summary.absent or 0 }}</div>
+    <div class="att-summary-lbl">Absent</div>
+  </div>
+  <div class="att-summary-item">
+    <div class="att-summary-val" style="color:#9ca3af">{{ summary.clocked_out or 0 }}</div>
+    <div class="att-summary-lbl">Done</div>
+  </div>
+</div>
+
+{% if rows %}
+<div class="crm-tree">
+  {% for emp in rows %}
+  <div class="tree-node tree-emp" style="padding-left:14px;cursor:default">
+    <span class="tree-icon" style="color:#6b7280">{{ _svg_person() }}</span>
+    <span class="tree-name">{{ emp.name }}</span>
+    {% if emp.department %}<span class="tree-dept">{{ emp.department }}</span>{% endif %}
+    <div class="att-chips">
+      {% if emp.status == 'Done' %}
+        <span class="att-chip chip-done">✓ Done</span>
+        <span class="att-chip chip-present">In {{ emp.clock_in.strftime('%H:%M') if emp.clock_in else '—' }}</span>
+        <span class="att-chip chip-present">Out {{ emp.clock_out.strftime('%H:%M') if emp.clock_out else '—' }}</span>
+        {% if emp.total_hours %}<span style="font-size:11px;color:var(--gray-500)">{{ emp.total_hours }}h</span>{% endif %}
+      {% elif emp.status == 'Working' %}
+        <span class="att-chip chip-working">Working</span>
+        <span class="att-chip chip-present">In {{ emp.clock_in.strftime('%H:%M') if emp.clock_in else '—' }}</span>
+        {% if emp.work_mode == 'remote' %}<span class="att-chip chip-remote">Remote</span>{% endif %}
+      {% else %}
+        <span class="att-chip chip-absent">Absent</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="tree-empty-state">
+  <span class="es-icon">👥</span>
+  <p>No employees assigned to your team yet.</p>
+</div>
+{% endif %}
+{% endmacro %}
+
+
+{# ── JS helper — call once per page ── #}
+{% macro tree_scripts() %}
+<script>
+(function () {
+  'use strict';
+
+  /* ── Smooth height-based expand/collapse ── */
+  function expand(el) {
+    el.style.height = el.scrollHeight + 'px';
+    el.addEventListener('transitionend', function onEnd() {
+      el.removeEventListener('transitionend', onEnd);
+      el.style.height = 'auto'; // allow natural reflow after expand
+    }, { once: true });
+  }
+
+  function collapse(el) {
+    // Snap from "auto" to pixel value first so transition fires
+    el.style.height = el.scrollHeight + 'px';
+    // Force reflow
+    el.offsetHeight; // eslint-disable-line no-unused-expressions
+    el.style.height = '0';
+  }
+
+  window.toggleTreeNode = function (nodeEl) {
+    var children = nodeEl.nextElementSibling;
+    if (!children || !children.classList.contains('tree-children')) return;
+
+    var caret  = nodeEl.querySelector('.tree-caret');
+    var isOpen = children.style.height !== '0' && children.style.height !== '';
+
+    if (isOpen) {
+      collapse(children);
+      if (caret) caret.classList.remove('open');
+    } else {
+      expand(children);
+      if (caret) caret.classList.add('open');
+    }
+  };
+})();
+</script>
+{% endmacro %}

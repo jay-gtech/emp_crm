@@ -1,6 +1,10 @@
 {% extends "base.html" %}
+{% from "components/tree_component.html" import tree_styles, tree_scripts, org_tree %}
 {% block title %}Dashboard — Employee CRM{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
+
+{% block extra_head %}{{ tree_styles() }}{% endblock %}
+
 {% block content %}
 
 <p class="text-muted mb-4">Welcome back, <strong>{{ current_user.name }}</strong> 👋</p>
@@ -349,6 +353,58 @@
    All sections are additive; existing UI above is untouched.
    ═══════════════════════════════════════════════════════════════════════ #}
 {% if current_user.role in ('admin', 'manager') %}
+
+{# ── Org Hierarchy Tree (admin only, uses full_hierarchy) ──────────── #}
+{% if current_user.role == 'admin' and full_hierarchy %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <h2 style="margin:0">🌳 Organisation Hierarchy</h2>
+    <span class="text-muted text-sm">Click Manager or Team Lead to expand</span>
+  </div>
+  <div class="card-body" style="padding:12px 16px">
+    {{ org_tree(full_hierarchy) }}
+  </div>
+</div>
+{% endif %}
+
+{# ── Manager hierarchy (manager only, from manager_hierarchy) ───────── #}
+{% if current_user.role == 'manager' and manager_hierarchy %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header" style="display:flex;align-items:center;gap:8px">
+    <h2 style="margin:0">👥 My Team Structure</h2>
+    <span class="text-muted text-sm">Click Team Lead to expand</span>
+  </div>
+  <div class="card-body" style="padding:12px 16px">
+    <div class="crm-tree">
+      {% for tl in manager_hierarchy %}
+      <div class="tree-group" style="margin-bottom:4px">
+        <div class="tree-node tree-tl" onclick="toggleTreeNode(this)">
+          <span class="tree-caret">▶</span>
+          <span>🧑‍💼</span>
+          <span class="tree-name">{{ tl.name }}</span>
+          <span class="tree-role-badge badge-tl-role">Team Lead</span>
+          <span class="tree-count">{{ tl.employees | length }} emp{{ 's' if tl.employees|length != 1 else '' }}</span>
+        </div>
+        <div class="tree-children">
+          {% if tl.employees %}
+            {% for emp_name in tl.employees %}
+            <div class="tree-node tree-emp">
+              <span style="width:16px;flex-shrink:0"></span>
+              <span>👤</span>
+              <span class="tree-name">{{ emp_name }}</span>
+              <span class="tree-role-badge badge-emp-role">Employee</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="tree-leaf-empty">No employees assigned</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {# ── Divider ─────────────────────────────────────────────────────────── #}
 <div style="display:flex;align-items:center;gap:12px;margin:32px 0 20px">
@@ -759,4 +815,5 @@
 </div>
 {% endif %}
 
+{{ tree_scripts() }}
 {% endblock %}

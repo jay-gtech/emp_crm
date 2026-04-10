@@ -626,6 +626,7 @@
       try { initTableHoverActions(); } catch(e) { console.warn('tableHover:', e); }
       try { initCopyFeedback(); }      catch(e) { console.warn('copy:', e); }
       try { initCommandPalette(); }    catch(e) { console.warn('cmdPalette:', e); }
+      try { initPageProgress(); }      catch(e) { console.warn('pageProgress:', e); }
 
       document.documentElement.dataset.uxReady = "true";
     } catch (err) {
@@ -634,4 +635,75 @@
       document.body.classList.add('ux-page-loaded');
     }
   });
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     9. PAGE PROGRESS BAR
+     Slim 3-px bar at the very top that fills on navigation/form submit.
+     ═══════════════════════════════════════════════════════════════════════ */
+  function initPageProgress() {
+    // Create the bar element
+    var bar = document.getElementById('page-progress');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'page-progress';
+      document.body.prepend(bar);
+    }
+
+    var _raf   = null;
+    var _value = 0;
+
+    function setProgress(v) {
+      _value = Math.min(Math.max(v, 0), 1);
+      bar.style.transform = 'scaleX(' + _value + ')';
+    }
+
+    function start() {
+      bar.classList.add('active');
+      setProgress(0.08);
+      // Ease toward 85% naturally (never reaches 100 until done)
+      var target = 0.85;
+      var step = function () {
+        if (_value < target) {
+          setProgress(_value + (target - _value) * 0.06);
+          _raf = requestAnimationFrame(step);
+        }
+      };
+      _raf = requestAnimationFrame(step);
+    }
+
+    function finish() {
+      cancelAnimationFrame(_raf);
+      setProgress(1);
+      setTimeout(function () {
+        bar.classList.remove('active');
+        setProgress(0);
+      }, 300);
+    }
+
+    // Trigger on link clicks (same-origin navigation)
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest('a[href]');
+      if (!a) return;
+      var href = a.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('javascript')) return;
+      if (a.target === '_blank') return;
+      try {
+        var url = new URL(href, location.href);
+        if (url.origin !== location.origin) return;
+      } catch (err) { return; }
+      start();
+    });
+
+    // Trigger on form submits
+    document.addEventListener('submit', function (e) {
+      if (e.defaultPrevented) return;
+      start();
+    });
+
+    // Finish when page finishes loading
+    window.addEventListener('pageshow', finish);
+    if (document.readyState === 'complete') finish();
+    else window.addEventListener('load', finish);
+  }
+
 })();

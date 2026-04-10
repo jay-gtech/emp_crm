@@ -1,20 +1,88 @@
 {% extends "base.html" %}
+{% from "components/tree_component.html" import
+   tree_styles, tree_scripts,
+   attendance_admin_panel, attendance_manager_panel, attendance_tl_panel %}
+
 {% block title %}Attendance — Employee CRM{% endblock %}
 {% block page_title %}Attendance{% endblock %}
+
+{% block extra_head %}
+{{ tree_styles() }}
+<style>
+/* ── Role section divider ─────────────────────────────────────────── */
+.section-divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 24px 0 16px;
+}
+.section-divider-line { flex: 1; height: 1px; background: var(--gray-200); }
+.section-divider-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--gray-400); white-space: nowrap;
+}
+/* ── Attendance stat chips (today summary) ────────────────────────── */
+.today-stats {
+  display: flex; gap: 20px; flex-wrap: wrap; padding: 16px 20px;
+}
+.today-stat { text-align: center; }
+.today-stat-val { font-size: 20px; font-weight: 700; color: var(--gray-800); }
+.today-stat-lbl { font-size: 11px; color: var(--gray-400); }
+/* ── Personal attendance card ─────────────────────────────────────── */
+.att-action-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 14px 20px; border-bottom: 1px solid var(--gray-100);
+  background: var(--gray-50); border-radius: var(--radius) var(--radius) 0 0;
+}
+/* ── History filter bar ───────────────────────────────────────────── */
+.hist-filter {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--gray-100);
+}
+/* ── Status badges for history ────────────────────────────────────── */
+.badge-late { background: #fef3c7; color: #92400e; border-radius:99px; padding:2px 8px; font-size:10px; font-weight:700; }
+.badge-ontime { background: #d1fae5; color: #065f46; border-radius:99px; padding:2px 8px; font-size:10px; font-weight:700; }
+/* ── Mobile ───────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .today-stats { gap: 12px; }
+  .att-action-bar { flex-direction: column; align-items: flex-start; }
+  .hist-filter { flex-direction: column; align-items: flex-start; }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 
 {% if error %}
-<div class="alert alert-danger">{{ error }}</div>
+<div class="alert alert-danger" style="margin-bottom:16px">{{ error }}</div>
 {% endif %}
 
-<!-- Action bar -->
+{# ══════════════════════════════════════════════════════════════════
+   ADMIN VIEW — org-wide, no personal clock in/out
+══════════════════════════════════════════════════════════════════ #}
+{% if current_user.role == 'admin' %}
+
 <div class="card" style="margin-bottom:20px">
-  <div class="action-bar">
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">🏢 Organisation Attendance — Today</h2>
+    <a href="/api/attendance/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+  </div>
+  <div class="card-body" style="padding:16px">
+    {{ attendance_admin_panel(admin_attendance) }}
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   MANAGER VIEW — personal attendance + team hierarchy
+══════════════════════════════════════════════════════════════════ #}
+{% elif current_user.role == 'manager' %}
+
+{# Personal attendance #}
+<div class="card" style="margin-bottom:20px">
+  <div class="att-action-bar">
     {% if not today or not today.clock_in_time %}
       <form method="post" action="/attendance/clock-in" id="clockInForm">
         <input type="hidden" name="latitude"  id="ciLat">
         <input type="hidden" name="longitude" id="ciLng">
-        <select name="work_mode" class="form-control" style="width:auto;display:inline-block;margin-right:6px">
+        <select name="work_mode" class="form-control" style="width:auto;display:inline-block">
           <option value="office">Office</option>
           <option value="remote">Remote</option>
         </select>
@@ -39,48 +107,251 @@
       <span style="color:var(--gray-400);font-size:13px">✓ Work day completed — clocked out at {{ today.clock_out_time.strftime('%H:%M') }}</span>
     {% endif %}
   </div>
-
-  <!-- Today's summary -->
-  <div class="card-body" style="padding:16px 20px">
-    <div style="display:flex;gap:32px;flex-wrap:wrap">
-      <div>
-        <div class="text-muted text-sm">Clock In</div>
-        <strong>
-          {{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}
-          {% if today and today.clock_in_time %}
-            {% set ci = today.clock_in_time %}
-            {% if ci.hour > late_hour or (ci.hour == late_hour and ci.minute > late_minute) %}
-              <span class="badge badge-red" style="font-size:10px;margin-left:4px">Late</span>
-            {% endif %}
-          {% endif %}
-        </strong>
-      </div>
-      <div>
-        <div class="text-muted text-sm">Clock Out</div>
-        <strong>{{ today.clock_out_time.strftime('%H:%M') if today and today.clock_out_time else '—' }}</strong>
-      </div>
-      <div>
-        <div class="text-muted text-sm">Total Hours</div>
-        <strong>{{ today.total_hours if today and today.total_hours else '—' }}</strong>
-      </div>
-      <div>
-        <div class="text-muted text-sm">Break Time</div>
-        <strong>{{ "%.0f"|format((today.total_break_hours or 0) * 60) }} min</strong>
-      </div>
-      <div>
-        <div class="text-muted text-sm">Work Mode</div>
-        <strong>{{ today.work_mode.value if today else '—' }}</strong>
-      </div>
+  <div class="today-stats">
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}</div>
+      <div class="today-stat-lbl">Clock In</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.clock_out_time.strftime('%H:%M') if today and today.clock_out_time else '—' }}</div>
+      <div class="today-stat-lbl">Clock Out</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.total_hours if today and today.total_hours else '—' }}</div>
+      <div class="today-stat-lbl">Hours</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ "%.0f"|format((today.total_break_hours or 0)*60) if today else '0' }}m</div>
+      <div class="today-stat-lbl">Break</div>
     </div>
   </div>
 </div>
 
-<!-- Breaks today -->
+{# Team hierarchy attendance #}
+{% if manager_team_attendance %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>👥 Team Attendance — Today</h2>
+    <span class="text-muted text-sm">Click a Team Lead to expand employees</span>
+  </div>
+  <div class="card-body" style="padding:12px 16px">
+    {{ attendance_manager_panel(manager_team_attendance) }}
+  </div>
+</div>
+{% endif %}
+
+{# Attendance history #}
+<div class="card">
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">📋 My Attendance History</h2>
+  </div>
+  <div class="hist-filter">
+    <form method="get" action="/attendance/" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0">
+      <label class="text-sm text-muted" style="margin:0">From</label>
+      <input type="date" name="date_from" class="form-control" style="width:140px" value="{{ date_from }}" />
+      <label class="text-sm text-muted" style="margin:0">To</label>
+      <input type="date" name="date_to" class="form-control" style="width:140px" value="{{ date_to }}" />
+      <button type="submit" class="btn btn-outline btn-sm">Filter</button>
+      {% if date_from or date_to %}<a href="/attendance/" class="btn btn-outline btn-sm">Clear</a>{% endif %}
+      <a href="/api/attendance/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table class="table-sticky">
+      <thead><tr><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Break</th><th>Mode</th><th>Flag</th></tr></thead>
+      <tbody>
+        {% for rec in history %}
+        {% set is_late = rec.clock_in_time and (rec.clock_in_time.hour > late_hour or (rec.clock_in_time.hour == late_hour and rec.clock_in_time.minute > late_minute)) %}
+        <tr>
+          <td>{{ rec.date }}</td>
+          <td>{{ rec.clock_in_time.strftime('%H:%M') if rec.clock_in_time else '—' }}</td>
+          <td>{{ rec.clock_out_time.strftime('%H:%M') if rec.clock_out_time else '—' }}</td>
+          <td>{% if rec.total_hours %}<span class="att-chip chip-done">{{ rec.total_hours }}h</span>{% elif rec.clock_in_time and not rec.clock_out_time %}<span class="att-chip chip-working">In Progress</span>{% else %}—{% endif %}</td>
+          <td>{{ "%.0f"|format((rec.total_break_hours or 0)*60) }}m</td>
+          <td><span class="att-chip {% if rec.work_mode.value == 'remote' %}chip-remote{% else %}chip-present{% endif %}">{{ rec.work_mode.value }}</span></td>
+          <td>{% if is_late %}<span class="badge-late">Late</span>{% else %}<span class="badge-ontime">On Time</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:24px">No records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   TEAM LEAD VIEW — personal attendance + team list
+══════════════════════════════════════════════════════════════════ #}
+{% elif current_user.role == 'team_lead' %}
+
+{# Personal attendance #}
+<div class="card" style="margin-bottom:20px">
+  <div class="att-action-bar">
+    {% if not today or not today.clock_in_time %}
+      <form method="post" action="/attendance/clock-in" id="clockInForm">
+        <input type="hidden" name="latitude"  id="ciLat">
+        <input type="hidden" name="longitude" id="ciLng">
+        <select name="work_mode" class="form-control" style="width:auto;display:inline-block">
+          <option value="office">Office</option>
+          <option value="remote">Remote</option>
+        </select>
+        <button type="button" class="btn btn-success" onclick="submitWithLocation('clockInForm','ciLat','ciLng')">🟢 Clock In</button>
+      </form>
+    {% elif not today.clock_out_time %}
+      <form method="post" action="/attendance/clock-out" id="clockOutForm">
+        <input type="hidden" name="latitude"  id="coLat">
+        <input type="hidden" name="longitude" id="coLng">
+        <button type="button" class="btn btn-danger" onclick="submitWithLocation('clockOutForm','coLat','coLng')">🔴 Clock Out</button>
+      </form>
+      {% if not active_break %}
+        <form method="post" action="/attendance/break/start"><button class="btn btn-warning">☕ Start Break</button></form>
+      {% else %}
+        <form method="post" action="/attendance/break/end"><button class="btn btn-primary">▶ End Break</button></form>
+      {% endif %}
+    {% else %}
+      <span style="color:var(--gray-400);font-size:13px">✓ Clocked out at {{ today.clock_out_time.strftime('%H:%M') }}</span>
+    {% endif %}
+  </div>
+  <div class="today-stats">
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}</div>
+      <div class="today-stat-lbl">Clock In</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.clock_out_time.strftime('%H:%M') if today and today.clock_out_time else '—' }}</div>
+      <div class="today-stat-lbl">Clock Out</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.total_hours if today and today.total_hours else '—' }}</div>
+      <div class="today-stat-lbl">Hours</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ "%.0f"|format((today.total_break_hours or 0)*60) if today else '0' }}m</div>
+      <div class="today-stat-lbl">Break</div>
+    </div>
+  </div>
+</div>
+
+{# Team attendance #}
+{% if tl_team_attendance and tl_team_attendance.rows %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <h2>👥 My Team — Today</h2>
+  </div>
+  <div class="card-body" style="padding:12px 16px">
+    {{ attendance_tl_panel(tl_team_attendance) }}
+  </div>
+</div>
+{% endif %}
+
+{# History #}
+<div class="card">
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">📋 My Attendance History</h2>
+  </div>
+  <div class="hist-filter">
+    <form method="get" action="/attendance/" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0">
+      <label class="text-sm text-muted" style="margin:0">From</label>
+      <input type="date" name="date_from" class="form-control" style="width:140px" value="{{ date_from }}" />
+      <label class="text-sm text-muted" style="margin:0">To</label>
+      <input type="date" name="date_to" class="form-control" style="width:140px" value="{{ date_to }}" />
+      <button type="submit" class="btn btn-outline btn-sm">Filter</button>
+      {% if date_from or date_to %}<a href="/attendance/" class="btn btn-outline btn-sm">Clear</a>{% endif %}
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table class="table-sticky">
+      <thead><tr><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Break</th><th>Mode</th><th>Flag</th></tr></thead>
+      <tbody>
+        {% for rec in history %}
+        {% set is_late = rec.clock_in_time and (rec.clock_in_time.hour > late_hour or (rec.clock_in_time.hour == late_hour and rec.clock_in_time.minute > late_minute)) %}
+        <tr>
+          <td>{{ rec.date }}</td>
+          <td>{{ rec.clock_in_time.strftime('%H:%M') if rec.clock_in_time else '—' }}</td>
+          <td>{{ rec.clock_out_time.strftime('%H:%M') if rec.clock_out_time else '—' }}</td>
+          <td>{% if rec.total_hours %}<span class="att-chip chip-done">{{ rec.total_hours }}h</span>{% elif rec.clock_in_time %}<span class="att-chip chip-working">In Progress</span>{% else %}—{% endif %}</td>
+          <td>{{ "%.0f"|format((rec.total_break_hours or 0)*60) }}m</td>
+          <td><span class="att-chip {% if rec.work_mode.value == 'remote' %}chip-remote{% else %}chip-present{% endif %}">{{ rec.work_mode.value }}</span></td>
+          <td>{% if is_late %}<span class="badge-late">Late</span>{% else %}<span class="badge-ontime">On Time</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:24px">No records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   EMPLOYEE / SECURITY GUARD VIEW — personal only
+══════════════════════════════════════════════════════════════════ #}
+{% else %}
+
+{# Clock in/out action bar #}
+<div class="card" style="margin-bottom:20px">
+  <div class="att-action-bar">
+    {% if not today or not today.clock_in_time %}
+      <form method="post" action="/attendance/clock-in" id="clockInForm">
+        <input type="hidden" name="latitude"  id="ciLat">
+        <input type="hidden" name="longitude" id="ciLng">
+        <select name="work_mode" class="form-control" style="width:auto;display:inline-block">
+          <option value="office">Office</option>
+          <option value="remote">Remote</option>
+        </select>
+        <button type="button" class="btn btn-success" onclick="submitWithLocation('clockInForm','ciLat','ciLng')">🟢 Clock In</button>
+      </form>
+    {% elif not today.clock_out_time %}
+      <form method="post" action="/attendance/clock-out" id="clockOutForm">
+        <input type="hidden" name="latitude"  id="coLat">
+        <input type="hidden" name="longitude" id="coLng">
+        <button type="button" class="btn btn-danger" onclick="submitWithLocation('clockOutForm','coLat','coLng')">🔴 Clock Out</button>
+      </form>
+      {% if not active_break %}
+        <form method="post" action="/attendance/break/start"><button class="btn btn-warning">☕ Start Break</button></form>
+      {% else %}
+        <form method="post" action="/attendance/break/end"><button class="btn btn-primary">▶ End Break</button></form>
+      {% endif %}
+    {% else %}
+      <span style="color:var(--gray-400);font-size:13px">✓ Day completed — out at {{ today.clock_out_time.strftime('%H:%M') }}</span>
+    {% endif %}
+  </div>
+  <div class="today-stats">
+    <div class="today-stat">
+      <div class="today-stat-val">
+        {{ today.clock_in_time.strftime('%H:%M') if today and today.clock_in_time else '—' }}
+        {% if today and today.clock_in_time %}
+          {% if today.clock_in_time.hour > late_hour or (today.clock_in_time.hour == late_hour and today.clock_in_time.minute > late_minute) %}
+            <span class="badge-late" style="font-size:10px;margin-left:4px">Late</span>
+          {% endif %}
+        {% endif %}
+      </div>
+      <div class="today-stat-lbl">Clock In</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.clock_out_time.strftime('%H:%M') if today and today.clock_out_time else '—' }}</div>
+      <div class="today-stat-lbl">Clock Out</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.total_hours if today and today.total_hours else '—' }}</div>
+      <div class="today-stat-lbl">Total Hours</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ "%.0f"|format((today.total_break_hours or 0)*60) if today else '0' }}m</div>
+      <div class="today-stat-lbl">Break</div>
+    </div>
+    <div class="today-stat">
+      <div class="today-stat-val">{{ today.work_mode.value if today else '—' }}</div>
+      <div class="today-stat-lbl">Work Mode</div>
+    </div>
+  </div>
+</div>
+
+{# Today's breaks #}
 {% if breaks %}
 <div class="card" style="margin-bottom:20px">
   <div class="card-header"><h2>☕ Today's Breaks</h2></div>
   <div class="table-wrap">
-    <table>
+    <table class="table-sticky">
       <thead><tr><th>#</th><th>Start</th><th>End</th><th>Duration</th><th>Status</th></tr></thead>
       <tbody>
         {% for b in breaks %}
@@ -90,11 +361,8 @@
           <td>{{ b.end_time.strftime('%H:%M') if b.end_time else '—' }}</td>
           <td>{{ b.duration_minutes or '—' }} min</td>
           <td>
-            {% if b.status.value == 'active' %}
-              <span class="badge badge-yellow">Active</span>
-            {% else %}
-              <span class="badge badge-green">Done</span>
-            {% endif %}
+            {% if b.status.value == 'active' %}<span class="att-chip chip-working">Active</span>
+            {% else %}<span class="att-chip chip-done">Done</span>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -104,28 +372,26 @@
 </div>
 {% endif %}
 
-<!-- Attendance history -->
+{# History #}
 <div class="card">
   <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
     <h2 style="margin:0">📋 Attendance History</h2>
-    <form method="get" action="/attendance/" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  </div>
+  <div class="hist-filter">
+    <form method="get" action="/attendance/" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0">
       <label class="text-sm text-muted" style="margin:0">From</label>
-      <input type="date" name="date_from" class="form-control" style="width:150px"
-             value="{{ date_from }}" />
+      <input type="date" name="date_from" class="form-control" style="width:140px" value="{{ date_from }}" />
       <label class="text-sm text-muted" style="margin:0">To</label>
-      <input type="date" name="date_to" class="form-control" style="width:150px"
-             value="{{ date_to }}" />
+      <input type="date" name="date_to" class="form-control" style="width:140px" value="{{ date_to }}" />
       <button type="submit" class="btn btn-outline btn-sm">Filter</button>
-      {% if date_from or date_to %}
-      <a href="/attendance/" class="btn btn-outline btn-sm">Clear</a>
-      {% endif %}
+      {% if date_from or date_to %}<a href="/attendance/" class="btn btn-outline btn-sm">Clear</a>{% endif %}
       <a href="/api/attendance/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
     </form>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="table-sticky">
       <thead>
-        <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Total Hours</th><th>Break</th><th>Mode</th><th>Flag</th></tr>
+        <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th><th>Break</th><th>Mode</th><th>Flag</th></tr>
       </thead>
       <tbody>
         {% for rec in history %}
@@ -135,22 +401,13 @@
           <td>{{ rec.clock_in_time.strftime('%H:%M') if rec.clock_in_time else '—' }}</td>
           <td>{{ rec.clock_out_time.strftime('%H:%M') if rec.clock_out_time else '—' }}</td>
           <td>
-            {% if rec.total_hours %}
-              <span class="badge badge-green">{{ rec.total_hours }}h</span>
-            {% elif rec.clock_in_time and not rec.clock_out_time %}
-              <span class="badge badge-yellow">In Progress</span>
-            {% else %}—
-            {% endif %}
+            {% if rec.total_hours %}<span class="att-chip chip-done">{{ rec.total_hours }}h</span>
+            {% elif rec.clock_in_time and not rec.clock_out_time %}<span class="att-chip chip-working">In Progress</span>
+            {% else %}—{% endif %}
           </td>
-          <td>{{ "%.0f"|format((rec.total_break_hours or 0) * 60) }} min</td>
-          <td><span class="badge badge-gray">{{ rec.work_mode.value }}</span></td>
-          <td>
-            {% if is_late %}
-              <span class="badge badge-red">Late</span>
-            {% else %}
-              <span class="badge badge-green">On Time</span>
-            {% endif %}
-          </td>
+          <td>{{ "%.0f"|format((rec.total_break_hours or 0)*60) }}m</td>
+          <td><span class="att-chip {% if rec.work_mode.value == 'remote' %}chip-remote{% else %}chip-present{% endif %}">{{ rec.work_mode.value }}</span></td>
+          <td>{% if is_late %}<span class="badge-late">Late</span>{% else %}<span class="badge-ontime">On Time</span>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:24px">No attendance records found.</td></tr>
@@ -160,21 +417,14 @@
   </div>
 </div>
 
+{% endif %}{# end role switch #}
+
+{{ tree_scripts() }}
 <script>
-/**
- * Grab the browser's current position, populate hidden lat/lng fields,
- * then submit the given form.  Falls through (submits without coords) if
- * geolocation is denied or unavailable — the server enforces policy.
- */
 function submitWithLocation(formId, latId, lngId) {
   var form = document.getElementById(formId);
   if (!form) return;
-
-  if (!navigator.geolocation) {
-    form.submit();
-    return;
-  }
-
+  if (!navigator.geolocation) { form.submit(); return; }
   navigator.geolocation.getCurrentPosition(
     function (pos) {
       document.getElementById(latId).value = pos.coords.latitude;
@@ -182,8 +432,7 @@ function submitWithLocation(formId, latId, lngId) {
       form.submit();
     },
     function () {
-      // Denied or timed-out — submit anyway; server decides based on work_mode
-      if (window.showToast) showToast('Location unavailable. Submitting without it.', 'warning');
+      if (window.showToast) showToast('Location unavailable — submitting without it.', 'warning');
       form.submit();
     },
     { timeout: 8000, maximumAge: 30000 }
