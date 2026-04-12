@@ -25,7 +25,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Role *</label>
-        <select name="role" class="form-control">
+        <select id="roleSelect" name="role" class="form-control" onchange="updateReportsTo(this.value)">
           <option value="employee">Employee</option>
           <option value="team_lead">Team Lead</option>
           <option value="manager">Manager</option>
@@ -33,6 +33,16 @@
           <option value="security_guard">Security Guard</option>
         </select>
       </div>
+
+      <!-- Reports To — shown only for roles that need a parent -->
+      <div class="form-group" id="reportsToGroup">
+        <label class="form-label">Reports To *</label>
+        <select id="reportsToSelect" name="reports_to_id" class="form-control">
+          <option value="" disabled selected>— select parent —</option>
+        </select>
+        <div id="reportsToHint" class="text-muted text-sm" style="margin-top:4px"></div>
+      </div>
+
       <div class="form-group">
         <label class="form-label">Department</label>
         <input name="department" type="text" class="form-control" placeholder="Engineering, HR, Sales…" />
@@ -44,5 +54,73 @@
     </form>
   </div>
 </div>
+
+<script>
+const ROLES_WITH_PARENT = ["manager", "team_lead", "employee"];
+const ROLE_HINT = {
+  manager:   "Must report to an Admin",
+  team_lead: "Must report to a Manager",
+  employee:  "Must report to a Team Lead",
+};
+
+function updateReportsTo(role) {
+  const group    = document.getElementById("reportsToGroup");
+  const dropdown = document.getElementById("reportsToSelect");
+  const hint     = document.getElementById("reportsToHint");
+
+  if (!ROLES_WITH_PARENT.includes(role)) {
+    group.style.display = "none";
+    dropdown.removeAttribute("required");
+    dropdown.value = "";
+    return;
+  }
+
+  group.style.display = "block";
+  dropdown.setAttribute("required", "required");
+  hint.textContent = ROLE_HINT[role] || "";
+
+  // Show loading state
+  dropdown.innerHTML = '<option value="" disabled selected>Loading…</option>';
+
+  fetch(`/api/users/valid-parents?role=${encodeURIComponent(role)}`)
+    .then(res => {
+      if (!res.ok) throw new Error("Request failed");
+      return res.json();
+    })
+    .then(data => {
+      dropdown.innerHTML = "";
+
+      if (!data || data.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.disabled = true;
+        opt.selected = true;
+        opt.textContent = "No eligible users found";
+        dropdown.appendChild(opt);
+        return;
+      }
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      placeholder.textContent = "— select parent —";
+      dropdown.appendChild(placeholder);
+
+      data.forEach(user => {
+        const opt = document.createElement("option");
+        opt.value = user.id;
+        opt.textContent = `${user.name} (${user.role})`;
+        dropdown.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      dropdown.innerHTML = '<option value="" disabled selected>Failed to load — try refreshing</option>';
+    });
+}
+
+// Initialise on page load with default role
+updateReportsTo(document.getElementById("roleSelect").value);
+</script>
 
 {% endblock %}

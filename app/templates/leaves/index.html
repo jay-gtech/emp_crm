@@ -89,7 +89,8 @@
     <a href="/api/leave/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
   </div>
   {% if leaves %}
-  <div style="overflow-x:auto">
+  {# Desktop table #}
+  <div class="table-view" style="overflow-x:auto">
     <table class="leave-table table-sticky">
       <thead>
         <tr>
@@ -131,6 +132,34 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+  {# Mobile card view #}
+  <div class="card-view" style="padding:12px">
+    {% for leave in leaves %}
+    <div class="mob-card">
+      <div class="mob-card-hdr">
+        <span class="mob-card-title">Emp #{{ leave.employee_id }} — <span class="leave-pill pill-type" style="font-size:10px">{{ leave.leave_type.value }}</span></span>
+        {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
+        {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
+        {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
+      </div>
+      <div class="mob-card-row"><span class="mob-card-lbl">From</span><span class="mob-card-val">{{ leave.start_date }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
+      {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
+      {% if leave.status.value == 'pending' %}
+      <div class="mob-card-actions">
+        <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
+          <input type="text" name="note" class="form-control" placeholder="Note (optional)…" style="margin-bottom:6px" />
+          <div style="display:flex;gap:6px">
+            <button name="action" value="approved" class="btn-approve" style="flex:1">✓ Approve</button>
+            <button name="action" value="rejected" class="btn-reject"  style="flex:1">✗ Reject</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
   {% else %}
   <div class="leave-empty">
@@ -218,7 +247,8 @@
   </div>
 
   {% if leaves %}
-  <div style="overflow-x:auto">
+  {# Desktop table #}
+  <div class="table-view" style="overflow-x:auto">
     <table class="leave-table table-sticky">
       <thead>
         <tr>
@@ -266,6 +296,37 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+  {# Mobile card view #}
+  <div class="card-view" style="padding:12px">
+    {% for leave in leaves %}
+    <div class="mob-card">
+      <div class="mob-card-hdr">
+        <span class="mob-card-title">
+          {% if current_user.role != 'employee' %}Emp #{{ leave.employee_id }} — {% endif %}
+          <span class="leave-pill pill-type" style="font-size:10px">{{ leave.leave_type.value }}</span>
+        </span>
+        {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
+        {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
+        {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
+      </div>
+      <div class="mob-card-row"><span class="mob-card-lbl">From</span><span class="mob-card-val">{{ leave.start_date }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
+      {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
+      {% if current_user.role in ('manager', 'team_lead') and leave.status.value == 'pending' %}
+      <div class="mob-card-actions">
+        <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
+          <input type="text" name="note" class="form-control" placeholder="Note (optional)…" style="margin-bottom:6px" />
+          <div style="display:flex;gap:6px">
+            <button name="action" value="approved" class="btn-approve" style="flex:1">✓ Approve</button>
+            <button name="action" value="rejected" class="btn-reject"  style="flex:1">✗ Reject</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
   {% else %}
   <div class="leave-empty">

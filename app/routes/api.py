@@ -45,6 +45,13 @@ except Exception:
 
 router = APIRouter(prefix="/api", tags=["api"])
 
+# Role → which parent role is valid
+_VALID_PARENT_ROLE: dict[str, str] = {
+    "manager":   "admin",
+    "team_lead": "manager",
+    "employee":  "team_lead",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,6 +98,37 @@ def _attendance_dict(a) -> dict:
         "total_break_hours": a.total_break_hours,
         "work_mode": a.work_mode.value if a.work_mode else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy helpers
+# ---------------------------------------------------------------------------
+
+@router.get("/users/valid-parents")
+def get_valid_parents(
+    role: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(login_required),
+):
+    """Return users eligible to be the parent of a given role (any logged-in user)."""
+    from app.models.user import User, UserRole
+    parent_role_str = _VALID_PARENT_ROLE.get(role)
+    if not parent_role_str:
+        return JSONResponse([])
+    try:
+        parent_role = UserRole(parent_role_str)
+    except ValueError:
+        return JSONResponse([])
+    users = (
+        db.query(User)
+        .filter(User.role == parent_role, User.is_active == 1)
+        .order_by(User.name)
+        .all()
+    )
+    return JSONResponse([
+        {"id": u.id, "name": u.name, "role": u.role.value}
+        for u in users
+    ])
 
 
 # ---------------------------------------------------------------------------

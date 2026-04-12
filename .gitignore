@@ -200,3 +200,6 @@ coverage.xml
 # OS artefacts
 .DS_Store
 Thumbs.db
+
+# CRM — user-generated uploads (never commit runtime data)
+app/static/uploads/

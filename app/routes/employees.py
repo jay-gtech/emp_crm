@@ -59,11 +59,15 @@ def create_employee_post(
     password: str = Form(...),
     role: str = Form(...),
     department: str = Form(""),
+    reports_to_id: int | None = Form(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(role_required("admin")),
 ):
     try:
-        create_employee(db, name, email.strip().lower(), password, role, department or None)
+        create_employee(
+            db, name, email.strip().lower(), password, role,
+            department or None, reports_to_id=reports_to_id or None,
+        )
         return RedirectResponse("/employees/", status_code=302)
     except EmployeeError as e:
         return templates.TemplateResponse(

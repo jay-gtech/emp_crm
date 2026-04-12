@@ -109,6 +109,7 @@ h1, h2, h3, h4, h5, h6 { font-weight: 700; line-height: 1.3; color: var(--gray-9
   border-right: 1px solid var(--sidebar-border);
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,.1) transparent;
+  transition: transform 0.28s cubic-bezier(.4,0,.2,1);
 }
 
 /* Brand mark */
@@ -814,6 +815,107 @@ tbody tr:nth-child(10) { animation-delay: 270ms; }
 /* ═══════════════════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Hamburger button (hidden on desktop) ─────────────────────────────────── */
+.hamburger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px; height: 38px;
+  background: none;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--gray-600);
+  flex-shrink: 0;
+  transition: background var(--dur-fast);
+}
+.hamburger-btn:hover { background: var(--gray-100); color: var(--gray-900); }
+.hamburger-btn svg { width: 18px; height: 18px; }
+
+/* ── Sidebar backdrop overlay ─────────────────────────────────────────────── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 999;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.sidebar-overlay.active { display: block; }
+
+/* ── table-view / card-view toggle ───────────────────────────────────────── */
+.table-view  { display: block; }
+.card-view   { display: none;  }
+
+/* ── Mobile data cards ────────────────────────────────────────────────────── */
+.mob-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow-xs);
+}
+.mob-card-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.mob-card-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--gray-900);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mob-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--gray-100);
+  font-size: 13px;
+  gap: 8px;
+}
+.mob-card-row:last-child { border-bottom: none; }
+.mob-card-lbl {
+  color: var(--gray-400);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mob-card-val {
+  font-weight: 500;
+  color: var(--gray-800);
+  text-align: right;
+  flex: 1;
+  min-width: 0;
+}
+.mob-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-100);
+}
+
+/* ── Tablet (900 → 1024) ──────────────────────────────────────────────────── */
+@media (max-width: 1024px) and (min-width: 641px) {
+  .page-body { padding: 20px 24px; }
+}
+
+/* ── Collapsed icon sidebar (640–900) ────────────────────────────────────── */
 @media (max-width: 900px) {
   :root { --sidebar-w: 72px; }
   .sidebar-brand { padding: 18px 0; justify-content: center; font-size: 0; }
@@ -825,13 +927,76 @@ tbody tr:nth-child(10) { animation-delay: 270ms; }
   .nav-link .icon { width: auto; font-size: 18px; }
 }
 
+/* ── Mobile (≤640px) ─────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .sidebar { display: none; }
+  /* Sidebar becomes a slide-in drawer */
+  :root { --sidebar-w: 240px; }
+  .sidebar {
+    transform: translateX(-100%);
+    z-index: 1000;
+    /* Restore nav-link labels hidden by 900px breakpoint */
+  }
+  .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+  /* Restore sidebar brand & nav labels inside the mobile drawer */
+  .sidebar-brand  { padding: 22px 20px 18px; justify-content: flex-start; font-size: 18px; }
+  .sidebar-brand::before { font-size: 20px; }
+  .nav-link span:not(.icon) { display: inline; }
+  .nav-section-title { opacity: 1; pointer-events: auto; height: auto; padding: 14px 12px 4px; }
+  .sidebar-footer div { display: block; }
+  .nav-link { justify-content: flex-start; padding: 9px 12px; }
+  .nav-link .icon { width: 22px; font-size: 16px; }
+
+  /* Main content fills full width */
   .main-content { margin-left: 0; }
-  .page-body { padding: 16px; }
+  .page-body { padding: 14px; overflow-x: hidden; }
+
+  /* Topbar */
+  .topbar { padding: 0 14px; }
+  .hamburger-btn { display: flex; }
+  /* Hide username text on mobile (keep avatar + logout) */
+  .topbar-user > span { display: none; }
+  /* Live clock → hide on very small screens */
+  #liveClock { display: none; }
+
+  /* Stats grid 2-column on mobile */
   .stats-grid { grid-template-columns: 1fr 1fr; }
-  .topbar { padding: 0 16px; }
+
+  /* Auth card */
   .auth-card { padding: 32px 24px; }
+
+  /* Full-width buttons on mobile */
+  .btn-mobile-full { width: 100% !important; text-align: center; }
+  /* Forms stack */
+  .form-row { flex-direction: column !important; }
+  .form-row .form-group { width: 100% !important; }
+  .form-control { width: 100% !important; box-sizing: border-box; }
+
+  /* Dashboard grid: 1 column */
+  .dashboard-grid,
+  .stats-grid-4 { grid-template-columns: 1fr !important; }
+  /* Keep stat cards 2x2 */
+  .stats-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* Card body padding tighter on mobile */
+  .card-body { padding: 14px 16px; }
+
+  /* table-view hidden, card-view shown */
+  .table-view { display: none !important; }
+  .card-view  { display: block !important; }
+
+  /* Dark-mode mobile card */
+  [data-theme="dark"] .mob-card {
+    background: var(--gray-100);
+    border-color: var(--gray-200);
+  }
+
+  /* Section header font reduction */
+  .card-header h2 { font-size: 14px; }
+  .topbar-title   { font-size: 14px; }
+
+  /* Prevent horizontal scroll */
+  body { overflow-x: hidden; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
 

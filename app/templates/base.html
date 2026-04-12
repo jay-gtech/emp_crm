@@ -71,8 +71,11 @@
 </head>
 <body data-page="{{ request.url.path }}">
 <div class="layout">
+  <!-- Sidebar backdrop (mobile) -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
   <!-- Sidebar -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <a class="sidebar-brand" href="/dashboard/">Emp<span>CRM</span></a>
     <nav class="sidebar-nav">
       <div class="nav-section-title">Main</div>
@@ -168,7 +171,14 @@
   <!-- Main content -->
   <div class="main-content">
     <header class="topbar">
-      <div style="display:flex;align-items:center;gap:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="hamburger-btn" id="hamburgerBtn" aria-label="Toggle navigation" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="6"  x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
         <span class="topbar-title">{% block page_title %}{% endblock %}</span>
         <span id="liveClock" style="font-size:11px;color:var(--gray-400);background:var(--gray-100);
               padding:3px 10px;border-radius:99px;font-weight:500"></span>
@@ -358,6 +368,39 @@ window.showToast = function(msg, type, duration) {
 </script>
 
 {% endif %}
+<!-- Mobile sidebar toggle -->
+<script>
+(function () {
+  var sidebar = document.getElementById('sidebar');
+  var overlay = document.getElementById('sidebarOverlay');
+  if (!sidebar || !overlay) return;
+
+  window.toggleSidebar = function () {
+    var isOpen = sidebar.classList.toggle('open');
+    overlay.classList.toggle('active', isOpen);
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  };
+
+  // Close sidebar when overlay is tapped
+  overlay.addEventListener('click', function () {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+    document.body.style.overflow = '';
+  });
+
+  // Close sidebar on nav-link click (mobile navigation)
+  sidebar.querySelectorAll('.nav-link').forEach(function (link) {
+    link.addEventListener('click', function () {
+      if (window.innerWidth <= 640) {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+    });
+  });
+})();
+</script>
+
 <!-- UX Intelligence Layer -->
 <script src="/static/js/ux.js" defer></script>
 </body>

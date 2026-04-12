@@ -9,9 +9,45 @@ except ImportError:
     apply_hierarchy_filter = None
 
 
+# Which role must the parent be for each child role?
+_ROLE_HIERARCHY: dict[str, str | None] = {
+    "admin":          None,        # no parent required
+    "manager":        "admin",
+    "team_lead":      "manager",
+    "employee":       "team_lead",
+    "security_guard": None,        # no strict parent required
+}
+
 
 class EmployeeError(Exception):
     pass
+
+
+def validate_reporting(role: str, parent_user: User | None) -> None:
+    """
+    Raise EmployeeError if `parent_user` is not the correct role for `role`.
+    Does nothing for admin / security_guard (no parent required).
+    """
+    expected_parent_role = _ROLE_HIERARCHY.get(role)
+    if expected_parent_role is None:
+        return  # no parent required for this role
+
+    if not parent_user:
+        raise EmployeeError(
+            f"A '{role}' must report to a '{expected_parent_role}'. "
+            f"Please select a valid parent user."
+        )
+
+    actual_parent_role = (
+        parent_user.role.value
+        if hasattr(parent_user.role, "value")
+        else str(parent_user.role)
+    )
+    if actual_parent_role != expected_parent_role:
+        raise EmployeeError(
+            f"A '{role}' must report to a '{expected_parent_role}', "
+            f"but the selected user has role '{actual_parent_role}'."
+        )
 
 
 def list_employees(
@@ -45,6 +81,7 @@ def create_employee(
     password: str,
     role: str,
     department: str | None,
+    reports_to_id: int | None = None,
 ) -> User:
     if db.query(User).filter(User.email == email).first():
         raise EmployeeError("Email already in use.")
@@ -53,12 +90,34 @@ def create_employee(
     except ValueError:
         raise EmployeeError(f"Invalid role: {role}")
 
+    # Resolve and validate the parent user
+    parent_user: User | None = None
+    if reports_to_id:
+        parent_user = db.query(User).filter(User.id == reports_to_id, User.is_active == 1).first()
+        if reports_to_id and not parent_user:
+            raise EmployeeError("Selected parent user not found or is inactive.")
+
+    validate_reporting(role, parent_user)
+
+    # Map the parent to the correct FK column based on role
+    manager_id: int | None = None
+    team_lead_id: int | None = None
+    if parent_user:
+        if role == "team_lead":
+            manager_id = parent_user.id       # TL reports to Manager
+        elif role == "employee":
+            team_lead_id = parent_user.id     # Employee reports to Team Lead
+        elif role == "manager":
+            manager_id = parent_user.id       # Manager reports to Admin (stored for reference)
+
     user = User(
         name=name,
         email=email,
         hashed_password=hash_password(password),
         role=user_role,
         department=department,
+        manager_id=manager_id,
+        team_lead_id=team_lead_id,
     )
     db.add(user)
     db.commit()

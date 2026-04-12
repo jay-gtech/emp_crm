@@ -335,7 +335,7 @@
       {% endif %}
     </div>
   </div>
-  <div class="table-wrap" style="overflow-x:auto">
+  <div class="table-view table-wrap" style="overflow-x:auto">
     <table id="taskTable" class="table-sticky" style="min-width:1050px">
       <thead>
         <tr>
@@ -475,6 +475,61 @@
       </tbody>
     </table>
     <p id="noFilterMatch" style="display:none;text-align:center;color:var(--gray-400);padding:24px">No tasks match your filters.</p>
+  </div>{# end table-view #}
+
+  {# Mobile card view — simplified task cards #}
+  <div class="card-view" style="padding:12px" id="taskCardView">
+    {% for task in tasks %}
+    {% set sv  = task.status.value %}
+    {% set uid = current_user.user_id %}
+    <div class="mob-card"
+         data-title="{{ task.title | lower }}"
+         data-status="{{ sv }}"
+         data-priority="{{ task.priority.value }}"
+         data-assignee-role="{{ role_map.get(task.assigned_to, 'employee') }}">
+      <div class="mob-card-hdr">
+        <span class="mob-card-title">{{ task.title }}</span>
+        {# Priority badge #}
+        {% if task.priority.value == 'high' %}<span class="badge badge-red">High</span>
+        {% elif task.priority.value == 'medium' %}<span class="badge badge-yellow">Med</span>
+        {% else %}<span class="badge badge-gray">Low</span>{% endif %}
+      </div>
+      {% if task.description %}
+      <p style="font-size:12px;color:var(--gray-400);margin:0 0 8px">{{ task.description[:80] }}{% if task.description|length > 80 %}…{% endif %}</p>
+      {% endif %}
+      <div class="mob-card-row"><span class="mob-card-lbl">Assigned To</span><span class="mob-card-val">{{ emp_map.get(task.assigned_to, '#' ~ task.assigned_to) }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">Status</span><span class="mob-card-val">{{ status_badge(sv) }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">Due</span><span class="mob-card-val">{{ task.due_date or '—' }}</span></div>
+      {% if task.total_hours_logged %}<div class="mob-card-row"><span class="mob-card-lbl">Duration</span><span class="mob-card-val">{{ fmt_duration(task.duration_seconds) }}</span></div>{% endif %}
+      <div class="mob-card-actions">
+        {# Assignee buttons #}
+        {% if uid == task.assigned_to %}
+          {% if sv in ('assigned', 'todo', 'pending') %}
+            <form method="post" action="/tasks/{{ task.id }}/start"><button class="btn btn-primary btn-sm">▶ Start</button></form>
+          {% elif sv == 'in_progress' %}
+            <form method="post" action="/tasks/{{ task.id }}/submit"><button class="btn btn-outline btn-sm" style="border-color:#3b82f6;color:#3b82f6">📤 Submit</button></form>
+          {% elif sv == 'pending_approval' %}
+            <span class="text-muted text-sm">Awaiting approval…</span>
+          {% elif sv == 'completed' %}
+            <span class="badge badge-green">Done ✓</span>
+          {% endif %}
+        {% endif %}
+        {# Assigner approve/reject #}
+        {% if uid == task.assigned_by and uid != task.assigned_to and sv == 'pending_approval' %}
+          <form method="post" action="/tasks/{{ task.id }}/approve" style="display:inline"><button class="btn btn-sm" style="background:#22c55e;color:#fff">✅ Approve</button></form>
+          <form method="post" action="/tasks/{{ task.id }}/reject"  style="display:inline"><button class="btn btn-danger btn-sm">↩ Reject</button></form>
+        {% endif %}
+        <button class="comment-toggle-btn" onclick="toggleComments({{ task.id }}, this)">💬</button>
+        {% if current_user.role in ('admin', 'manager', 'team_lead') %}
+        <form method="post" action="/tasks/{{ task.id }}/delete" style="display:inline">
+          <button class="btn btn-danger btn-sm" onclick="return confirm('Delete?')">🗑</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="tree-empty-state"><span class="es-icon">✅</span><p>No tasks found.</p></div>
+    {% endfor %}
   </div>
 </div>
 
