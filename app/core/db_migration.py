@@ -1,10 +1,13 @@
 """
-db_migration.py — Safe, additive schema migrations for SQLite.
+db_migration.py — Safe, additive schema migrations (SQLite + PostgreSQL).
 
 Strategy
 ────────
 • Uses ALTER TABLE … ADD COLUMN only (never DROP, never recreate).
-• Idempotent: checks PRAGMA table_info before each ALTER so re-runs are safe.
+• Idempotent: checks information_schema (PG) or PRAGMA (SQLite) before each
+  ALTER, so re-runs are always safe.
+• On a fresh PostgreSQL database every column already exists via create_all(),
+  so this function becomes a no-op — zero risk, zero cost.
 • Logging only — no print() in library code; callers see output via the logger.
 
 Alembic readiness
@@ -12,7 +15,7 @@ Alembic readiness
 When you are ready to switch to Alembic:
   1. pip install alembic
   2. alembic init alembic
-  3. Point alembic/env.py at app.core.database.Base and SQLALCHEMY_DATABASE_URL
+  3. Point alembic/env.py at app.core.database.Base and DATABASE_URL
   4. alembic revision --autogenerate -m "initial"
   5. alembic upgrade head
   6. Remove apply_safe_migrations() from main.py on_startup once Alembic takes over.
@@ -25,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # ── Migration registry ────────────────────────────────────────────────────────
 # Each entry:  (table, column, ALTER SQL)
+# ALTER TABLE syntax is identical for SQLite and PostgreSQL.
 # Add new columns here — never remove old ones.
 _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     (
@@ -77,12 +81,12 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     (
         "tasks",
         "start_time",
-        "ALTER TABLE tasks ADD COLUMN start_time DATETIME;",
+        "ALTER TABLE tasks ADD COLUMN start_time TIMESTAMP;",
     ),
     (
         "tasks",
         "end_time",
-        "ALTER TABLE tasks ADD COLUMN end_time DATETIME;",
+        "ALTER TABLE tasks ADD COLUMN end_time TIMESTAMP;",
     ),
     (
         "tasks",
@@ -97,20 +101,20 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
     (
         "tasks",
         "approved_at",
-        "ALTER TABLE tasks ADD COLUMN approved_at DATETIME;",
+        "ALTER TABLE tasks ADD COLUMN approved_at TIMESTAMP;",
     ),
-    # ── Deadline & delay tracking ───────────────────────────────────────────
+    # ── Deadline & delay tracking ─────────────────────────────────────────────
     (
         "tasks",
         "deadline",
-        "ALTER TABLE tasks ADD COLUMN deadline DATETIME;",
+        "ALTER TABLE tasks ADD COLUMN deadline TIMESTAMP;",
     ),
     (
         "tasks",
         "is_delayed",
-        "ALTER TABLE tasks ADD COLUMN is_delayed BOOLEAN DEFAULT 0 NOT NULL;",
+        "ALTER TABLE tasks ADD COLUMN is_delayed BOOLEAN DEFAULT FALSE NOT NULL;",
     ),
-    # ── Announcement audience targeting ────────────────────────────────────────
+    # ── Announcement audience targeting ───────────────────────────────────────
     (
         "announcements",
         "audience_type",
@@ -121,7 +125,7 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
         "target_ids",
         "ALTER TABLE announcements ADD COLUMN target_ids TEXT;",
     ),
-    # ── Group chat columns on messages ─────────────────────────────────────────
+    # ── Group chat columns on messages ────────────────────────────────────────
     (
         "messages",
         "group_id",
@@ -135,9 +139,10 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
 ]
 
 
-# ── New-table DDL statements ──────────────────────────────────────────────────
-# Each entry: (table_name, CREATE TABLE … IF NOT EXISTS SQL)
-_TABLE_MIGRATIONS: list[tuple[str, str]] = [
+# ── New-table DDL (SQLite only — PostgreSQL gets these via create_all()) ──────
+# These tables all have SQLAlchemy models, so create_all() handles them on PG.
+# Kept here for SQLite backward-compatibility only.
+_SQLITE_TABLE_MIGRATIONS: list[tuple[str, str]] = [
     (
         "location_logs",
         """
@@ -151,7 +156,6 @@ _TABLE_MIGRATIONS: list[tuple[str, str]] = [
         );
         """,
     ),
-    # ── Task Comments ──────────────────────────────────────────────────────────
     (
         "task_comments",
         """
@@ -164,7 +168,6 @@ _TABLE_MIGRATIONS: list[tuple[str, str]] = [
         );
         """,
     ),
-    # ── Chat groups ────────────────────────────────────────────────────────────
     (
         "chat_groups",
         """
@@ -191,33 +194,78 @@ _TABLE_MIGRATIONS: list[tuple[str, str]] = [
 ]
 
 
-def _existing_columns(conn, table: str) -> set[str]:
+# ── Dialect helpers ───────────────────────────────────────────────────────────
+
+def _is_postgres(engine: Engine) -> bool:
+    return engine.dialect.name == "postgresql"
+
+
+def _existing_columns_sqlite(conn, table: str) -> set[str]:
+    """SQLite: use PRAGMA table_info."""
     rows = conn.execute(text(f"PRAGMA table_info({table});")).fetchall()
     return {row[1] for row in rows}
 
+
+def _existing_columns_postgres(conn, table: str) -> set[str]:
+    """PostgreSQL: use information_schema.columns."""
+    rows = conn.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = :t AND table_schema = 'public';"
+        ),
+        {"t": table},
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def _existing_columns(conn, table: str, is_pg: bool) -> set[str]:
+    if is_pg:
+        return _existing_columns_postgres(conn, table)
+    return _existing_columns_sqlite(conn, table)
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def apply_safe_migrations(engine: Engine) -> None:
     """
     Run all registered additive column migrations.
     Safe to call on every startup — skips columns that already exist.
+    Works with both SQLite and PostgreSQL.
     Never drops tables or columns.
     """
+    pg = _is_postgres(engine)
+    dialect_label = "PostgreSQL" if pg else "SQLite"
+    logger.debug("[migration] Dialect detected: %s", dialect_label)
+
     try:
         with engine.begin() as conn:
-            # ── Ensure new tables exist ───────────────────────────────────────
-            for table_name, create_sql in _TABLE_MIGRATIONS:
-                try:
-                    conn.execute(text(create_sql))
-                    logger.info("[migration] Ensured table %s exists ✓", table_name)
-                except Exception as tbl_exc:
-                    logger.warning("[migration] Table %s DDL failed: %s", table_name, tbl_exc)
+            # ── Ensure new tables exist (SQLite only) ─────────────────────────
+            # PostgreSQL gets all tables via Base.metadata.create_all() at startup,
+            # so the SQLite-specific DDL is skipped to avoid syntax errors.
+            if not pg:
+                for table_name, create_sql in _SQLITE_TABLE_MIGRATIONS:
+                    try:
+                        conn.execute(text(create_sql))
+                        logger.info("[migration] Ensured table %s exists ✓", table_name)
+                    except Exception as tbl_exc:
+                        logger.warning("[migration] Table %s DDL failed: %s", table_name, tbl_exc)
+            else:
+                logger.info(
+                    "[migration] PostgreSQL: table creation handled by create_all() — skipping DDL block."
+                )
 
-            # Cache column sets per table to avoid redundant PRAGMA calls
+            # ── Additive column migrations (both dialects) ────────────────────
             column_cache: dict[str, set[str]] = {}
 
             for table, column, sql in _COLUMN_MIGRATIONS:
                 if table not in column_cache:
-                    column_cache[table] = _existing_columns(conn, table)
+                    try:
+                        column_cache[table] = _existing_columns(conn, table, pg)
+                    except Exception as exc:
+                        logger.warning(
+                            "[migration] Could not read columns for %s: %s — skipping table.", table, exc
+                        )
+                        column_cache[table] = set()
 
                 if column in column_cache[table]:
                     logger.debug("[migration] %s.%s already exists — skip.", table, column)
@@ -225,7 +273,7 @@ def apply_safe_migrations(engine: Engine) -> None:
 
                 try:
                     conn.execute(text(sql))
-                    column_cache[table].add(column)  # update cache
+                    column_cache[table].add(column)
                     logger.info("[migration] Added column %s.%s ✓", table, column)
                 except Exception as col_exc:
                     logger.warning(
