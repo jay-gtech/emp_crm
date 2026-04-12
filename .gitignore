@@ -201,5 +201,6 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# CRM — user-generated uploads (never commit runtime data)
-app/static/uploads/
+# CRM — user-generated uploads (never commit runtime files)
+app/static/uploads/**
+!app/static/uploads/**/.gitkeep

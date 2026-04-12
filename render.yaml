@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: emp-crm
+    runtime: python
+    region: singapore          # change to: ohio / frankfurt / oregon as needed
+    plan: free                 # upgrade to starter/standard for production SLA
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
+
+    # Auto-deploy when main branch is pushed
+    branch: main
+    autoDeploy: true
+
+    healthCheckPath: /auth/login
+
+    envVars:
+      # --- Required: set these in Render dashboard (never commit values) ---
+      - key: DATABASE_URL
+        sync: false            # mark sync:false so Render never auto-fills it
+
+      - key: SECRET_KEY
+        generateValue: true    # Render generates a secure random value once
+
+      - key: ENV
+        value: prod
+
+      - key: ADMIN_EMAIL
+        value: admin@company.com
+
+      - key: ADMIN_PASSWORD
+        sync: false            # set a strong password in the Render dashboard
+
+      # --- Optional ---
+      - key: ALLOWED_ORIGINS
+        sync: false            # e.g. https://emp-crm.onrender.com
+
+      - key: EMAIL_ENABLED
+        value: "false"
+
+      - key: ML_LOGGING
+        value: "true"

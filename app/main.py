@@ -113,15 +113,30 @@ if _SLOWAPI_OK:
 
 @app.on_event("startup")
 def on_startup():
-    _log.info("Running ENV: %s", settings.ENV)
-    _log.info("Using DB: %s", settings.DATABASE_URL)
+    import os
+    from pathlib import Path
 
-    # Warn if production is using the insecure default secret key
-    if settings.ENV == "prod" and settings.SECRET_KEY == "change-this-super-secret-key-in-production":
-        _log.critical(
-            "SECURITY WARNING: SECRET_KEY is set to the default insecure value in production! "
-            "Set a strong SECRET_KEY in your environment variables immediately."
-        )
+    _log.info("Running ENV: %s", settings.ENV)
+    # Mask credentials in DB URL before logging
+    _db_url_safe = settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else settings.DATABASE_URL
+    _log.info("Using DB: ...@%s", _db_url_safe)
+
+    # Security guards for production
+    if settings.ENV == "prod":
+        if settings.SECRET_KEY == "change-this-super-secret-key-in-production":
+            _log.critical(
+                "SECURITY: SECRET_KEY is the default insecure value — "
+                "set a strong SECRET_KEY env variable immediately."
+            )
+        if not settings.DATABASE_URL.startswith("postgresql"):
+            _log.critical(
+                "SECURITY: Production is not using PostgreSQL. "
+                "Set DATABASE_URL to a postgresql:// connection string."
+            )
+
+    # Ensure upload directories exist (Render ephemeral FS — recreated on each deploy)
+    for _upload_dir in ["app/static/uploads/chat", "app/static/uploads/visitors"]:
+        Path(_upload_dir).mkdir(parents=True, exist_ok=True)
 
     from app.core.database import SessionLocal
     from app.models.user import User, UserRole
@@ -129,10 +144,10 @@ def on_startup():
 
     db = SessionLocal()
     try:
-        # 1. Create tables if they don't exist
+        # 1. Create tables if they don't exist (safe — never drops existing data)
         Base.metadata.create_all(bind=engine)
 
-        # 2. Apply safe migrations
+        # 2. Apply safe additive column migrations
         try:
             from app.core.db_migration import apply_safe_migrations
             apply_safe_migrations(engine)
@@ -161,17 +176,19 @@ def on_startup():
         except Exception as _ml_exc:
             _log.warning("[startup] ML model preload skipped: %s", _ml_exc)
 
-        # 5. Ensure default admin exists
-        admin_email = "admin@company.com"
+        # 5. Ensure default admin exists — password from ADMIN_PASSWORD env var
+        #    Falls back to "admin123" only in non-production environments.
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@company.com")
+        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
         admin = db.query(User).filter(User.email == admin_email).first()
         if not admin:
             _log.info("[startup] Seed: Creating default admin (%s)...", admin_email)
             new_admin = User(
                 name="System Admin",
                 email=admin_email,
-                hashed_password=hash_password("admin123"),
+                hashed_password=hash_password(admin_password),
                 role=UserRole.admin,
-                is_active=1
+                is_active=1,
             )
             db.add(new_admin)
             db.commit()

@@ -45,6 +45,10 @@ class Settings:
     SESSION_MAX_AGE: int = 60 * 60 * 8  # 8 hours
     LEAVE_ANNUAL_QUOTA: int = 20  # default annual leave days per employee
 
+    # Default admin seed — override via env vars in production
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@company.com")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123")
+
     # ---------------------------------------------------------------------------
     # Email / SMTP settings
     # Set EMAIL_ENABLED=true in your environment (or .env file) to activate.
