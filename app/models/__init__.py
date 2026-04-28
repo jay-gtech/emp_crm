@@ -3,12 +3,12 @@
 from app.models.user import User, UserRole
 from app.models.attendance import Attendance, WorkMode
 from app.models.break_record import BreakRecord, BreakStatus
-from app.models.task import Task, TaskStatus, TaskPriority
+from app.models.task import Task, TaskStatus, TaskPriority, TaskAssignment, AssignmentStatus
 from app.models.leave import Leave, LeaveType, LeaveStatus
 from app.models.notification import Notification
 from app.models.audit_log import AuditLog, AuditAction
 from app.models.announcement import Announcement
-from app.models.meeting import Meeting
+from app.models.meeting import Meeting, MeetingParticipant
 from app.models.message import Message
 from app.models.location_log import LocationLog
 from app.models.task_comment import TaskComment
@@ -22,12 +22,12 @@ __all__ = [
     "User", "UserRole",
     "Attendance", "WorkMode",
     "BreakRecord", "BreakStatus",
-    "Task", "TaskStatus", "TaskPriority",
+    "Task", "TaskStatus", "TaskPriority", "TaskAssignment", "AssignmentStatus",
     "Leave", "LeaveType", "LeaveStatus",
     "Notification",
     "AuditLog", "AuditAction",
     "Announcement",
-    "Meeting",
+    "Meeting", "MeetingParticipant",
     "Message",
     "LocationLog",
     "TaskComment",

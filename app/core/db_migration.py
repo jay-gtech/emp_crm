@@ -56,6 +56,23 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
         "audit_log_id",
         "ALTER TABLE notifications ADD COLUMN audit_log_id INTEGER REFERENCES audit_logs(id);",
     ),
+    # ── Unified per-module notification routing ──────────────────────────────
+    (
+        "notifications",
+        "module",
+        "ALTER TABLE notifications ADD COLUMN module VARCHAR(50);",
+    ),
+    (
+        "notifications",
+        "entity_id",
+        "ALTER TABLE notifications ADD COLUMN entity_id INTEGER;",
+    ),
+    # ── Notification priority (low / normal / high) ────────────────────────
+    (
+        "notifications",
+        "priority",
+        "ALTER TABLE notifications ADD COLUMN priority VARCHAR(10) DEFAULT 'normal';",
+    ),
     # ── Location-based access control (users) ─────────────────────────────────
     (
         "users",
@@ -190,6 +207,15 @@ _SQLITE_TABLE_MIGRATIONS: list[tuple[str, str]] = [
             UNIQUE(group_id, user_id)
         );
         """,
+    ),
+    # ── Performance indexes ────────────────────────────────────────────────────
+    (
+        "idx_notifications_user_read",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);",
+    ),
+    (
+        "idx_notifications_module",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_module ON notifications(module);",
     ),
 ]
 

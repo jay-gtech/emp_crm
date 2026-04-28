@@ -4,6 +4,207 @@
 
 {% block extra_head %}
 <style>
+/* ── Multi-select assignee widget ────────────────────────────────── */
+.assignee-select-wrapper {
+  position: relative;
+}
+.assignee-select-wrapper select[multiple] {
+  width: 100%;
+  min-height: 120px;
+  max-height: 160px;
+  border-radius: 8px;
+  border: 1.5px solid var(--primary, #6366f1);
+  padding: 4px 6px;
+  font-size: 13px;
+  background: var(--card-bg, #fff);
+  cursor: pointer;
+}
+.assignee-select-wrapper select[multiple] option {
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin: 1px 0;
+}
+.assignee-select-wrapper select[multiple] option:checked {
+  background: var(--primary, #6366f1);
+  color: #fff;
+}
+.select-helper-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.select-helper-bar .selection-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary, #6366f1);
+  background: #ede9fe;
+  border-radius: 99px;
+  padding: 2px 10px;
+  transition: opacity .2s;
+}
+.select-helper-bar .helper-btns {
+  display: flex;
+  gap: 4px;
+}
+.select-helper-bar .helper-btns button {
+  background: none;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--gray-500, #6b7280);
+  transition: background .15s, color .15s;
+}
+.select-helper-bar .helper-btns button:hover {
+  background: var(--primary, #6366f1);
+  color: #fff;
+  border-color: var(--primary, #6366f1);
+}
+.assignee-search {
+  width: 100%;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--gray-300, #d1d5db);
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--card-bg,#fff);
+}
+
+/* ── Batch badge ──────────────────────────────────────────────────── */
+.badge-batch {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe;
+  border-radius: 99px; padding: 1px 8px; font-size: 11px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+.badge-batch:hover { background: #e0e7ff; }
+
+/* ── Batch progress panel ─────────────────────────────────────────── */
+.batch-panel-card { margin-bottom: 20px; }
+.batch-accordion-item {
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.batch-accordion-hdr {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 14px;
+  cursor: pointer;
+  background: var(--gray-50, #f9fafb);
+  transition: background .15s;
+  gap: 12px;
+}
+.batch-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.batch-accordion-hdr:hover { background: #ede9fe; }
+.batch-accordion-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--gray-800, #1f2937);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-progress-container {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+}
+.batch-progress-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 6px;
+  background: var(--gray-200, #e5e7eb);
+  overflow: hidden;
+}
+.batch-progress-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.6s ease-out, background-color 0.3s ease;
+}
+.batch-pct-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gray-600, #4b5563);
+  min-width: 40px;
+  text-align: right;
+}
+.batch-stat-badges {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.batch-accordion-body {
+  display: none;
+  padding: 10px 14px;
+  background: #fff;
+}
+.batch-accordion-body.open { display: block; }
+
+/* ── Assignee list (scrollable, grouped by status) ───────────────── */
+.assignee-list {
+  max-height: 150px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-right: 2px;
+}
+.assignee-list::-webkit-scrollbar { width: 4px; }
+.assignee-list::-webkit-scrollbar-track { background: transparent; }
+.assignee-list::-webkit-scrollbar-thumb { background: var(--gray-200,#e5e7eb); border-radius: 99px; }
+
+.assignee-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--gray-400, #9ca3af);
+  margin-top: 8px;
+  margin-bottom: 2px;
+  padding-left: 2px;
+}
+.assignee-group-label:first-child { margin-top: 0; }
+
+.batch-assignee-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--gray-50, #f9fafb);
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.batch-assignee-chip .chip-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Status-tinted chip borders */
+.batch-assignee-chip.chip-done    { border-color: #bbf7d0; background: #f0fdf4; }
+.batch-assignee-chip.chip-work    { border-color: #bfdbfe; background: #eff6ff; }
+.batch-assignee-chip.chip-review  { border-color: #fde68a; background: #fffbeb; }
+.batch-assignee-chip.chip-pending { border-color: var(--gray-200,#e5e7eb); }
+
+/* legacy grid kept for fallback */
+.batch-assignee-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
 /* ── Analytics Cards ──────────────────────────────────────────────── */
 .task-stats-grid {
   display: grid;
@@ -31,8 +232,7 @@
 .stat-card.green .stat-val { color: var(--success, #22c55e); }
 .stat-card.blue  .stat-val { color: var(--info,    #3b82f6); }
 .stat-card.amber .stat-val { color: var(--warning, #f59e0b); }
-
-/* ── Delay badge ──────────────────────────────────────────────────── */
+/* ── Delay badges ────────────────────────────────────────────────── */
 .badge-delayed {
   display: inline-flex; align-items: center; gap: 3px;
   background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;
@@ -48,8 +248,7 @@
   background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0;
   border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 500;
 }
-
-/* ── Comment panel ─────────────────────────────────────────────────── */
+/* ── Comment panel ───────────────────────────────────────────────── */
 .comment-panel {
   display: none;
   border-top: 1px solid var(--gray-100, #f3f4f6);
@@ -74,10 +273,210 @@
   color: var(--primary, #6366f1); font-weight: 500; padding: 2px 4px;
 }
 .comment-toggle-btn:hover { text-decoration: underline; }
+
+/* ── Multi-user assignee list (task table cell) ───────────────────── */
+.task-assignees {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.assignee-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--gray-50, #f9fafb);
+  border: 1px solid var(--gray-100, #f3f4f6);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.assignee-item .ai-name {
+  font-weight: 600;
+  color: var(--gray-700, #374151);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+.task-progress-text {
+  font-size: 10px;
+  color: var(--gray-400, #9ca3af);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* ── Improved assignee chip (progress panel) ─────────────────────── */
+.batch-assignee-chip .chip-status {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--gray-500, #6b7280);
+}
+
+/* ── Mobile responsive ────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Hide table on mobile — card view takes over */
+  .table-view { display: none !important; }
+  .card-view  { display: block !important; }
+
+  /* Stat cards: 2-col on mobile */
+  .task-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Create task form: single column */
+  #createTaskForm {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Batch progress panel assignee grid: single column */
+  .batch-assignee-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .batch-assignee-chip {
+    padding: 8px 12px;
+  }
+
+  /* Multi-user assignee list in mobile cards */
+  .task-assignees {
+    gap: 6px;
+  }
+  .assignee-item {
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #f9fafb;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  .assignee-item .ai-name {
+    max-width: 100%;
+  }
+
+  /* Batch accordion header: stack on narrow screens */
+  .batch-stat-badges {
+    flex-wrap: wrap;
+  }
+  .batch-progress-container {
+    width: 100%;
+  }
+
+  /* Mobile card actions: wrap buttons */
+  .mob-card-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .task-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .batch-stat-badges {
+    gap: 4px;
+  }
+  .batch-stat-badges .badge {
+    font-size: 10px;
+    padding: 1px 5px;
+  }
+}
+
+/* ── Server-side Filter Bar ───────────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 16px 20px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: var(--radius, 10px);
+  margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.05);
+}
+.filter-bar-title {
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-500, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 2px;
+}
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 160px;
+  min-width: 140px;
+  max-width: 260px;
+}
+.filter-group label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-500, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.filter-group .form-control {
+  font-size: 13px;
+  padding: 7px 10px;
+  height: 36px;
+}
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-shrink: 0;
+  padding-bottom: 1px;
+}
+.filter-active-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: #1d4ed8;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.filter-active-banner a {
+  margin-left: auto;
+  color: #dc2626;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.filter-active-banner a:hover { text-decoration: underline; }
+@media (max-width: 768px) {
+  .filter-group {
+    flex: 1 1 calc(50% - 10px);
+    max-width: 100%;
+  }
+  .filter-actions {
+    width: 100%;
+  }
+  .filter-actions .btn {
+    flex: 1;
+    text-align: center;
+  }
+}
+@media (max-width: 480px) {
+  .filter-group {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+}
 </style>
 {% endblock %}
 
 {% block content %}
+{# ── Defensive defaults: route passes these; guard against stale module cache ── #}
+{% set emp_map    = emp_map    | default({}) %}
+{% set role_map   = role_map   | default({}) %}
+{% set approver_map = approver_map | default({}) %}
 
 {# ── Duration formatter macro ───────────────────────────────────────── #}
 {% macro fmt_duration(secs) %}
@@ -223,17 +622,33 @@
 <div class="card" style="margin-bottom:20px">
   <div class="card-header"><h2>➕ Assign New Task</h2></div>
   <div class="card-body">
-    <form method="post" action="/tasks/create" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    {# ── Inline validation error from backend redirect ── #}
+    {%- set _qerr = request.query_params.get('error', '') -%}
+    {% if _qerr == 'due_date_past' %}
+    <div class="alert alert-danger" style="margin-bottom:12px">⚠️ Due date cannot be in the past. Please choose today or a future date.</div>
+    {% elif _qerr == 'deadline_past' %}
+    <div class="alert alert-danger" style="margin-bottom:12px">⚠️ Deadline cannot be in the past. Please choose a future date &amp; time.</div>
+    {% elif _qerr == 'no_assignee' %}
+    <div class="alert alert-danger" style="margin-bottom:12px">⚠️ Please select at least one employee to assign this task to.</div>
+    {% endif %}
+    <form method="post" action="/tasks/create" id="createTaskForm" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label class="form-label">Title *</label>
         <input name="title" type="text" class="form-control" placeholder="Task title" required />
       </div>
       <div class="form-group">
-        <label class="form-label">Assign To *</label>
-        {# ── Grouped hierarchy dropdown ── #}
-        <select name="assigned_to" class="form-control" required>
-          <option value="">-- Select Person --</option>
-          {# Build role-grouped lists #}
+        <label class="form-label">Assign To * <span style="font-size:11px;color:var(--gray-400)">Hold Ctrl/⌘ for multiple</span></label>
+        {# ── Multi-select assignee widget ── #}
+        <div class="assignee-select-wrapper">
+          <input type="text" id="assigneeSearch" class="assignee-search" placeholder="🔍 Filter names…" oninput="filterAssigneeOptions()" />
+          <div class="select-helper-bar">
+            <span class="selection-count" id="selectionCount">0 selected</span>
+            <div class="helper-btns">
+              <button type="button" onclick="selectAllAssignees()">Select All</button>
+              <button type="button" onclick="clearAssignees()">Clear</button>
+            </div>
+          </div>
+          {# Build role-grouped multi-select #}
           {% set mgr_list = [] %}
           {% set tl_list  = [] %}
           {% set emp_list = [] %}
@@ -243,28 +658,32 @@
             {% else %}{% if emp_list.append(p) %}{% endif %}
             {% endif %}
           {% endfor %}
-          {% if mgr_list %}
-          <optgroup label="Managers">
-            {% for p in mgr_list %}
-            <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
-            {% endfor %}
-          </optgroup>
-          {% endif %}
-          {% if tl_list %}
-          <optgroup label="Team Leads">
-            {% for p in tl_list %}
-            <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
-            {% endfor %}
-          </optgroup>
-          {% endif %}
-          {% if emp_list %}
-          <optgroup label="Employees">
-            {% for p in emp_list %}
-            <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
-            {% endfor %}
-          </optgroup>
-          {% endif %}
-        </select>
+          <select name="assigned_to" id="assigneeSelect" class="form-control" multiple
+                  onchange="updateSelectionCount()" size="6"
+                  aria-label="Select one or more employees to assign this task">
+            {% if mgr_list %}
+            <optgroup label="Managers">
+              {% for p in mgr_list %}
+              <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+            {% if tl_list %}
+            <optgroup label="Team Leads">
+              {% for p in tl_list %}
+              <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+            {% if emp_list %}
+            <optgroup label="Employees">
+              {% for p in emp_list %}
+              <option value="{{ p.id }}">{{ p.name }}{% if p.department %} · {{ p.department }}{% endif %}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+          </select>
+        </div>
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Description</label>
@@ -280,44 +699,187 @@
       </div>
       <div class="form-group">
         <label class="form-label">Due Date</label>
-        <input name="due_date" type="date" class="form-control" />
+        <input name="due_date" type="date" id="task-due-date" class="form-control" />
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">⏰ Deadline (with time)</label>
-        <input name="deadline" type="datetime-local" class="form-control"
+        <input name="deadline" type="datetime-local" id="task-deadline" class="form-control"
                title="Hard deadline for delay tracking" />
       </div>
       <div style="grid-column:1/-1">
-        <button type="submit" class="btn btn-primary">Assign Task</button>
+        <button type="submit" class="btn btn-primary" id="assignTaskBtn">Assign Task</button>
+        <span id="assigneeWarn" style="display:none;margin-left:10px;color:#ef4444;font-size:12px;font-weight:600">⚠ Select at least one person.</span>
       </div>
     </form>
   </div>
 </div>
 {% endif %}
 
-<!-- ── Employee name + role lookup maps ─────────────────────────── -->
-{% set emp_map  = {} %}
-{% set role_map = {} %}
-{% for emp in employees %}
-  {% if emp_map.update({emp.id: emp.name}) %}{% endif %}
-  {% if role_map.update({emp.id: emp.role.value}) %}{% endif %}
-{% endfor %}
+<!-- ── Multi-User Assignment Progress Panel (managers / admins / team_leads only) ── -->
+{% if current_user.role in ('admin', 'manager', 'team_lead') and batch_summary %}
+<div class="card batch-panel-card">
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+    <h2>👥 Multi-User Assignment Progress</h2>
+    <span class="text-muted text-sm">{{ batch_summary | length }} task{{ 's' if batch_summary | length != 1 else '' }} with multiple assignees</span>
+  </div>
+  <div class="card-body" style="padding:12px">
+    {% for b in batch_summary %}
+    <div class="batch-accordion-item">
+      <div class="batch-accordion-hdr" onclick="toggleBatchAccordion('ba-{{ loop.index }}')">
+        <div class="batch-header-top">
+          <span class="batch-accordion-title">{{ b.title }}</span>
+        </div>
+        <div class="batch-stat-badges">
+          <span class="badge badge-green" title="{{ b.completed }} Completed">✔ {{ b.completed }}</span>
+          <span class="badge badge-blue" title="{{ b.in_progress }} In Progress">🔄 {{ b.in_progress }}</span>
+          <span class="badge badge-yellow" title="{{ b.pending_approval }} Review">⏳ {{ b.pending_approval }}</span>
+          <span class="badge badge-gray" title="{{ b.assigned }} Assigned">📋 {{ b.assigned }}</span>
+        </div>
+        {% set computed_pct = ((b.completed / b.total) * 100) | round | int if b.total > 0 else 0 %}
+        {% set bar_color = '#22c55e' if computed_pct == 100 else ('#f59e0b' if computed_pct >= 50 else '#3b82f6') %}
+        <div class="batch-progress-container">
+          <div class="batch-progress-bar">
+            <div class="batch-progress-bar-fill" style="width:{{ computed_pct }}%; background-color: {{ bar_color }};"></div>
+          </div>
+          <span class="batch-pct-label">{{ computed_pct }}%</span>
+        </div>
+      </div>
+      <div class="batch-accordion-body" id="ba-{{ loop.index }}">
+        {# Progress summary line #}
+        <div style="font-size:11px;color:var(--gray-500,#6b7280);margin-bottom:6px;font-weight:500">
+          Progress: <strong>{{ b.completed }} / {{ b.total }}</strong> completed
+          {% if b.pct == 100 %}<span class="badge badge-green" style="font-size:10px;margin-left:4px">All done ✓</span>{% endif %}
+        </div>
+
+        {# ── Group assignees by status ──────────────────────────────── #}
+        {% set _done    = [] %}
+        {% set _work    = [] %}
+        {% set _review  = [] %}
+        {% set _pending = [] %}
+        {% for a in b.assignees %}
+          {% if a.status in ('completed','approved') %}{% if _done.append(a) %}{% endif %}
+          {% elif a.status == 'in_progress' %}{% if _work.append(a) %}{% endif %}
+          {% elif a.status == 'pending_approval' %}{% if _review.append(a) %}{% endif %}
+          {% else %}{% if _pending.append(a) %}{% endif %}
+          {% endif %}
+        {% endfor %}
+
+        <div class="assignee-list">
+          {% if _done %}
+          <div class="assignee-group-label">✅ Completed ({{ _done | length }})</div>
+          {% for a in _done %}
+          <div class="batch-assignee-chip chip-done">
+            <span class="chip-name" title="{{ a.name }}">{{ a.name }}</span>
+            <span class="badge badge-green" style="font-size:10px">Done</span>
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          {% if _review %}
+          <div class="assignee-group-label">⏳ Pending Review ({{ _review | length }})</div>
+          {% for a in _review %}
+          <div class="batch-assignee-chip chip-review">
+            <span class="chip-name" title="{{ a.name }}">{{ a.name }}</span>
+            <span class="badge badge-yellow" style="font-size:10px">Review</span>
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          {% if _work %}
+          <div class="assignee-group-label">🔄 In Progress ({{ _work | length }})</div>
+          {% for a in _work %}
+          <div class="batch-assignee-chip chip-work">
+            <span class="chip-name" title="{{ a.name }}">{{ a.name }}</span>
+            <span class="badge badge-blue" style="font-size:10px">Working</span>
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          {% if _pending %}
+          <div class="assignee-group-label">📋 Assigned ({{ _pending | length }})</div>
+          {% for a in _pending %}
+          <div class="batch-assignee-chip chip-pending">
+            <span class="chip-name" title="{{ a.name }}">{{ a.name }}</span>
+            <span class="badge badge-gray" style="font-size:10px">Assigned</span>
+          </div>
+          {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Server-side Filter Bar ─────────────────────────────────────── -->
+<form method="get" action="/tasks/" id="taskFilterForm">
+  <div class="filter-bar">
+    <div class="filter-bar-title">🔍 Filter Tasks</div>
+
+    <div class="filter-group">
+      <label for="filter-title">Title</label>
+      <input id="filter-title" type="text" name="title" class="form-control"
+             placeholder="Search by title…"
+             value="{{ filter_title }}" />
+    </div>
+
+    <div class="filter-group">
+      <label for="filter-employee">Assigned Employee</label>
+      <input id="filter-employee" type="text" name="employee" class="form-control"
+             placeholder="Employee name…"
+             value="{{ filter_employee }}" />
+    </div>
+
+    <div class="filter-group">
+      <label for="filter-start">From Date</label>
+      <input id="filter-start" type="date" name="start_date" class="form-control"
+             value="{{ filter_start_date }}" />
+    </div>
+
+    <div class="filter-group">
+      <label for="filter-end">To Date</label>
+      <input id="filter-end" type="date" name="end_date" class="form-control"
+             value="{{ filter_end_date }}" />
+    </div>
+
+    <div class="filter-actions">
+      <button type="submit" class="btn btn-primary btn-sm" id="applyFilterBtn"
+              style="white-space:nowrap">⚙ Apply Filter</button>
+      <a href="/tasks/" class="btn btn-outline btn-sm"
+         style="white-space:nowrap">✕ Reset</a>
+    </div>
+  </div>
+</form>
+
+{% if filters_active %}
+<div class="filter-active-banner">
+  <span>🔎 Filters applied —
+    {% if filter_title %}<strong>Title:</strong> "{{ filter_title }}"{% endif %}
+    {% if filter_employee %}{% if filter_title %} &bull; {% endif %}<strong>Employee:</strong> "{{ filter_employee }}"{% endif %}
+    {% if filter_start_date %}{% if filter_title or filter_employee %} &bull; {% endif %}<strong>From:</strong> {{ filter_start_date }}{% endif %}
+    {% if filter_end_date %}{% if filter_title or filter_employee or filter_start_date %} &bull; {% endif %}<strong>To:</strong> {{ filter_end_date }}{% endif %}
+    &mdash; <strong>{{ tasks | length }}</strong> result{{ 's' if tasks | length != 1 else '' }} found.
+  </span>
+  <a href="/tasks/">✕ Clear All</a>
+</div>
+{% endif %}
 
 <!-- ── Task list ───────────────────────────────────────────────────── -->
 <div class="card">
-  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-    <h2 style="margin:0">📋 Task List</h2>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;overflow:visible">
+    <h2 style="margin:0;flex-shrink:0">📋 Task List</h2>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0">
       <input id="taskSearch" type="text" class="form-control" placeholder="Search title…"
-             style="width:180px" oninput="filterTasks()" />
-      <select id="statusFilter" class="form-control" style="width:160px" onchange="filterTasks()">
+             style="width:180px;min-width:120px;flex-shrink:1" oninput="filterTasks()" />
+      <select id="statusFilter" class="form-control" style="width:160px;min-width:120px;flex-shrink:1" onchange="filterTasks()">
         <option value="">All Statuses</option>
         <option value="assigned">Assigned</option>
         <option value="in_progress">In Progress</option>
         <option value="pending_approval">Pending Approval</option>
         <option value="completed">Completed</option>
       </select>
-      <select id="priorityFilter" class="form-control" style="width:130px" onchange="filterTasks()">
+      <select id="priorityFilter" class="form-control" style="width:130px;min-width:100px;flex-shrink:1" onchange="filterTasks()">
         <option value="">All Priorities</option>
         <option value="high">High</option>
         <option value="medium">Medium</option>
@@ -326,12 +888,13 @@
       {% if current_user.role in ('admin', 'manager') %}
       {# Toggle to show/hide employee-level tasks #}
       <button id="empToggleBtn" class="btn btn-outline btn-sm" onclick="toggleEmployeeTasks()"
-              title="Show/Hide tasks assigned to employees">
+              aria-label="Show or hide tasks assigned to employees"
+              style="white-space:nowrap;flex-shrink:0">
         👤 Show Employee Tasks
       </button>
       {% endif %}
       {% if current_user.role in ('admin', 'manager', 'team_lead') %}
-      <a href="/api/tasks/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+      <a href="/api/tasks/export" class="btn btn-outline btn-sm" style="white-space:nowrap;flex-shrink:0">⬇ Export CSV</a>
       {% endif %}
     </div>
   </div>
@@ -342,6 +905,7 @@
           <th>#</th><th>Title</th><th>Assigned To</th><th>Priority</th>
           <th>Due</th><th>⏰ Deadline</th><th>Status</th>
           <th>⏱ Start</th><th>🏁 End</th><th>⏳ Dur.</th><th>👤 Approved By</th>
+          {% if current_user.role in ('admin','manager','team_lead') %}<th>Batch</th>{% endif %}
           <th>Action</th>
         </tr>
       </thead>
@@ -352,7 +916,8 @@
         <tr data-title="{{ task.title | lower }}"
             data-status="{{ sv }}"
             data-priority="{{ task.priority.value }}"
-            data-assignee-role="{{ role_map.get(task.assigned_to, 'employee') }}">
+            data-batch-id="{{ task.batch_id or '' }}"
+            data-assignee-role="{% if task.assigned_to == uid %}{{ current_user.role }}{% else %}{{ role_map.get(task.assigned_to, 'employee') }}{% endif %}">
           <td class="text-muted">#{{ task.id }}</td>
           <td>
             <strong>{{ task.title }}</strong>
@@ -361,8 +926,34 @@
             {% endif %}
           </td>
           <td>
-            {% if task.assigned_to in emp_map %}{{ emp_map[task.assigned_to] }}
-            {% else %}<span class="text-muted">#{{ task.assigned_to }}</span>
+            {# For multi-user tasks look up all co-assignees from batch_summary #}
+            {% set _peer_assignees = [] %}
+            {% for _b in batch_summary %}
+              {% if _b.task_id == task.id %}
+                {% for _a in _b.assignees %}{% if _peer_assignees.append(_a) %}{% endif %}{% endfor %}
+              {% endif %}
+            {% endfor %}
+            {% if _peer_assignees | length > 1 %}
+              <div class="task-assignees">
+                {% for _a in _peer_assignees %}
+                <div class="assignee-item">
+                  <span class="ai-name" title="{{ _a.name }}">{{ _a.name }}</span>
+                  {% if _a.status == 'completed' or _a.status == 'approved' %}
+                    <span class="badge badge-green" style="font-size:10px">✅</span>
+                  {% elif _a.status == 'in_progress' %}
+                    <span class="badge badge-blue" style="font-size:10px">🔄</span>
+                  {% elif _a.status == 'pending_approval' %}
+                    <span class="badge badge-yellow" style="font-size:10px">⏳</span>
+                  {% else %}
+                    <span class="badge badge-gray" style="font-size:10px">📋</span>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              {% if task.assigned_to in emp_map %}{{ emp_map[task.assigned_to] }}
+              {% else %}<span class="text-muted">#{{ task.assigned_to }}</span>
+              {% endif %}
             {% endif %}
           </td>
           <td>
@@ -396,6 +987,16 @@
             {% else %}—{% endif %}
           </td>
 
+          <!-- Multi-assign badge -->
+          {% if current_user.role in ('admin','manager','team_lead') %}
+          <td style="white-space:nowrap">
+            {# legacy batch tasks still carry batch_id; new multi-user tasks are grouped by task.id in the progress panel #}
+            {% if task.batch_id %}
+            <span class="badge-batch" title="Legacy batch">🔗 Batch</span>
+            {% else %}—{% endif %}
+          </td>
+          {% endif %}
+
           <!-- Action buttons (context-aware) -->
           <td style="white-space:nowrap;min-width:180px">
             {# Assignee buttons #}
@@ -415,13 +1016,15 @@
               {% endif %}
             {% endif %}
 
-            {# Assigner buttons #}
+            {# Assigner buttons — pass assignment_id so the backend updates only this user's row #}
             {% if uid == task.assigned_by and uid != task.assigned_to %}
               {% if sv == 'pending_approval' %}
                 <form method="post" action="/tasks/{{ task.id }}/approve" style="display:inline;margin-right:4px">
+                  {% if task.assignment_id %}<input type="hidden" name="assignment_id" value="{{ task.assignment_id }}">{% endif %}
                   <button class="btn btn-sm" style="background:#22c55e;color:#fff">✅ Approve</button>
                 </form>
                 <form method="post" action="/tasks/{{ task.id }}/reject" style="display:inline">
+                  {% if task.assignment_id %}<input type="hidden" name="assignment_id" value="{{ task.assignment_id }}">{% endif %}
                   <button class="btn btn-danger btn-sm">↩ Reject</button>
                 </form>
               {% elif sv == 'completed' %}
@@ -470,7 +1073,7 @@
           </td>
         </tr>
         {% else %}
-        <tr id="noTasksRow"><td colspan="12" style="text-align:center;color:var(--gray-400);padding:32px">No tasks found.</td></tr>
+        <tr id="noTasksRow"><td colspan="13" style="text-align:center;color:var(--gray-400);padding:32px">No tasks found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -486,7 +1089,7 @@
          data-title="{{ task.title | lower }}"
          data-status="{{ sv }}"
          data-priority="{{ task.priority.value }}"
-         data-assignee-role="{{ role_map.get(task.assigned_to, 'employee') }}">
+         data-assignee-role="{% if task.assigned_to == uid %}{{ current_user.role }}{% else %}{{ role_map.get(task.assigned_to, 'employee') }}{% endif %}">
       <div class="mob-card-hdr">
         <span class="mob-card-title">{{ task.title }}</span>
         {# Priority badge #}
@@ -497,7 +1100,36 @@
       {% if task.description %}
       <p style="font-size:12px;color:var(--gray-400);margin:0 0 8px">{{ task.description[:80] }}{% if task.description|length > 80 %}…{% endif %}</p>
       {% endif %}
+      {# Multi-user check for mobile card view #}
+      {% set _mob_peers = [] %}
+      {% for _b in batch_summary %}
+        {% if _b.task_id == task.id %}
+          {% for _a in _b.assignees %}{% if _mob_peers.append(_a) %}{% endif %}{% endfor %}
+        {% endif %}
+      {% endfor %}
+      {% if _mob_peers | length > 1 %}
+      <div class="mob-card-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <span class="mob-card-lbl">Assigned To</span>
+        <div class="task-assignees" style="width:100%">
+          {% for _a in _mob_peers %}
+          <div class="assignee-item">
+            <span class="ai-name">{{ _a.name }}</span>
+            {% if _a.status == 'completed' or _a.status == 'approved' %}
+              <span class="badge badge-green" style="font-size:10px">✅ Done</span>
+            {% elif _a.status == 'in_progress' %}
+              <span class="badge badge-blue" style="font-size:10px">🔄 Working</span>
+            {% elif _a.status == 'pending_approval' %}
+              <span class="badge badge-yellow" style="font-size:10px">⏳ Review</span>
+            {% else %}
+              <span class="badge badge-gray" style="font-size:10px">📋 Assigned</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
       <div class="mob-card-row"><span class="mob-card-lbl">Assigned To</span><span class="mob-card-val">{{ emp_map.get(task.assigned_to, '#' ~ task.assigned_to) }}</span></div>
+      {% endif %}
       <div class="mob-card-row"><span class="mob-card-lbl">Status</span><span class="mob-card-val">{{ status_badge(sv) }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">Due</span><span class="mob-card-val">{{ task.due_date or '—' }}</span></div>
       {% if task.total_hours_logged %}<div class="mob-card-row"><span class="mob-card-lbl">Duration</span><span class="mob-card-val">{{ fmt_duration(task.duration_seconds) }}</span></div>{% endif %}
@@ -514,10 +1146,16 @@
             <span class="badge badge-green">Done ✓</span>
           {% endif %}
         {% endif %}
-        {# Assigner approve/reject #}
+        {# Assigner approve/reject — pass assignment_id so only this user's row is updated #}
         {% if uid == task.assigned_by and uid != task.assigned_to and sv == 'pending_approval' %}
-          <form method="post" action="/tasks/{{ task.id }}/approve" style="display:inline"><button class="btn btn-sm" style="background:#22c55e;color:#fff">✅ Approve</button></form>
-          <form method="post" action="/tasks/{{ task.id }}/reject"  style="display:inline"><button class="btn btn-danger btn-sm">↩ Reject</button></form>
+          <form method="post" action="/tasks/{{ task.id }}/approve" style="display:inline">
+            {% if task.assignment_id %}<input type="hidden" name="assignment_id" value="{{ task.assignment_id }}">{% endif %}
+            <button class="btn btn-sm" style="background:#22c55e;color:#fff">✅ Approve</button>
+          </form>
+          <form method="post" action="/tasks/{{ task.id }}/reject" style="display:inline">
+            {% if task.assignment_id %}<input type="hidden" name="assignment_id" value="{{ task.assignment_id }}">{% endif %}
+            <button class="btn btn-danger btn-sm">↩ Reject</button>
+          </form>
         {% endif %}
         <button class="comment-toggle-btn" onclick="toggleComments({{ task.id }}, this)">💬</button>
         {% if current_user.role in ('admin', 'manager', 'team_lead') %}
@@ -534,7 +1172,7 @@
 </div>
 
 <script>
-/* ── Employee task toggle (admin/manager) ────────────────────────── */
+/* ── Employee task toggle ─────────────────────────────────────────── */
 let _showEmpTasks = false;
 function toggleEmployeeTasks() {
   _showEmpTasks = !_showEmpTasks;
@@ -547,7 +1185,13 @@ function toggleEmployeeTasks() {
   filterTasks();
 }
 
-/* ── Filter ──────────────────────────────────────────────────────── */
+/* ── Filter (extended with batch filter) ─────────────────────────── */
+let _activeBatchFilter = '';
+function filterByBatch(batchId) {
+  _activeBatchFilter = (_activeBatchFilter === batchId) ? '' : batchId;
+  filterTasks();
+}
+
 function filterTasks() {
   const search   = document.getElementById('taskSearch').value.toLowerCase();
   const status   = document.getElementById('statusFilter').value;
@@ -557,10 +1201,9 @@ function filterTasks() {
   rows.forEach(row => {
     const assigneeRole = row.dataset.assigneeRole || '';
     const isEmployee   = assigneeRole === 'employee';
-    // Hide employee tasks unless toggle is on (only for admin/manager)
-    const empHidden = isEmployee && !_showEmpTasks && document.getElementById('empToggleBtn');
-
-    const ok = !empHidden
+    const empHidden    = isEmployee && !_showEmpTasks && document.getElementById('empToggleBtn');
+    const batchMatch   = !_activeBatchFilter || (row.dataset.batchId === _activeBatchFilter);
+    const ok = !empHidden && batchMatch
             && (!search   || row.dataset.title.includes(search))
             && (!status   || row.dataset.status   === status)
             && (!priority || row.dataset.priority === priority);
@@ -570,6 +1213,63 @@ function filterTasks() {
   const noMatch = document.getElementById('noFilterMatch');
   if (noMatch) noMatch.style.display = (rows.length > 0 && visible === 0) ? 'block' : 'none';
 }
+
+/* ── Batch accordion ─────────────────────────────────────────────── */
+function toggleBatchAccordion(id) {
+  const body = document.getElementById(id);
+  if (body) body.classList.toggle('open');
+}
+
+/* ── Multi-select assignee helpers ──────────────────────────────── */
+function updateSelectionCount() {
+  const sel   = document.getElementById('assigneeSelect');
+  const badge = document.getElementById('selectionCount');
+  if (!sel || !badge) return;
+  const n = Array.from(sel.options).filter(o => o.selected && !o.hidden).length;
+  badge.textContent = n === 0 ? '0 selected' : n + ' selected';
+  badge.style.background = n > 0 ? 'var(--primary,#6366f1)' : '#ede9fe';
+  badge.style.color      = n > 0 ? '#fff' : 'var(--primary,#6366f1)';
+}
+
+function selectAllAssignees() {
+  const sel = document.getElementById('assigneeSelect');
+  if (!sel) return;
+  Array.from(sel.options).forEach(o => { if (!o.hidden) o.selected = true; });
+  updateSelectionCount();
+}
+
+function clearAssignees() {
+  const sel = document.getElementById('assigneeSelect');
+  if (!sel) return;
+  Array.from(sel.options).forEach(o => o.selected = false);
+  updateSelectionCount();
+}
+
+function filterAssigneeOptions() {
+  const q   = (document.getElementById('assigneeSearch').value || '').toLowerCase();
+  const sel = document.getElementById('assigneeSelect');
+  if (!sel) return;
+  Array.from(sel.options).forEach(o => {
+    o.hidden = q ? !o.text.toLowerCase().includes(q) : false;
+  });
+  updateSelectionCount();
+}
+
+/* ── Form submit guard — ensure ≥1 assignee ─────────────────────── */
+(function () {
+  const form = document.getElementById('createTaskForm');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    const sel  = document.getElementById('assigneeSelect');
+    const warn = document.getElementById('assigneeWarn');
+    if (sel && Array.from(sel.options).filter(o => o.selected).length === 0) {
+      e.preventDefault();
+      if (warn) warn.style.display = 'inline';
+      sel.focus();
+      setTimeout(() => { if (warn) warn.style.display = 'none'; }, 3500);
+    }
+  });
+})();
 
 /* ── Deadline countdown ──────────────────────────────────────────── */
 (function () {
@@ -603,9 +1303,7 @@ function toggleComments(taskId, btn) {
   row.style.display   = isOpen ? 'none' : '';
   panel.classList.toggle('open', !isOpen);
   btn.textContent     = isOpen ? '💬 Comments' : '💬 Hide';
-  if (!isOpen && !_loadedComments.has(taskId)) {
-    loadComments(taskId);
-  }
+  if (!isOpen && !_loadedComments.has(taskId)) loadComments(taskId);
 }
 
 function loadComments(taskId) {
@@ -626,9 +1324,7 @@ function loadComments(taskId) {
         </div>`).join('');
       thread.scrollTop = thread.scrollHeight;
     })
-    .catch(() => {
-      if (thread) thread.innerHTML = '<div style="color:#9ca3af;font-size:12px">Could not load comments.</div>';
-    });
+    .catch(() => { if (thread) thread.innerHTML = '<div style="color:#9ca3af;font-size:12px">Could not load comments.</div>'; });
 }
 
 function escHtml(s) {
@@ -637,9 +1333,29 @@ function escHtml(s) {
   return d.innerHTML;
 }
 
-// Hide employee tasks by default for admin/manager on load
 document.addEventListener('DOMContentLoaded', function () {
   if (document.getElementById('empToggleBtn')) filterTasks();
+  updateSelectionCount();
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const nowStr   = new Date().toISOString().slice(0, 16);
+  const dueDateInput = document.getElementById('task-due-date');
+  if (dueDateInput) dueDateInput.min = todayStr;
+  const deadlineInput = document.getElementById('task-deadline');
+  if (deadlineInput) deadlineInput.min = nowStr;
+
+  /* ── Filter form: strip empty inputs before GET so FastAPI never
+         receives blank query params (prevents 422 on date fields) ── */
+  const filterForm = document.getElementById('taskFilterForm');
+  if (filterForm) {
+    filterForm.addEventListener('submit', function () {
+      this.querySelectorAll('input, select').forEach(function (el) {
+        if (!el.value || el.value.trim() === '') {
+          el.removeAttribute('name');
+        }
+      });
+    });
+  }
 });
 </script>
 

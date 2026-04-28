@@ -1,8 +1,73 @@
+import logging as _logging
+
 from datetime import date as _date
 from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 
+_hier_log = _logging.getLogger(__name__)
 
+ROLE_HIERARCHY = {
+    "admin": ["manager", "team_lead"],
+    "manager": ["team_lead"],
+    "team_lead": ["employee"],
+    "employee": [],
+    "security_guard": []
+}
+
+def can_assign(assigner_role: str, target_role: str) -> bool:
+    return target_role in ROLE_HIERARCHY.get(assigner_role, [])
+
+
+def get_subordinate_ids(db: Session, user_id: int) -> list[int]:
+    """
+    Return all subordinate user IDs for *user_id*.
+
+    Performance: single DB query loads all (id, manager_id, team_lead_id) tuples;
+    BFS traversal resolves the full subtree in memory.
+    Output is identical to the previous recursive implementation.
+    """
+    try:
+        # One round-trip: only the three columns we need.
+        rows = db.query(User.id, User.manager_id, User.team_lead_id).all()
+
+        # Build parent → direct-children map (both FK columns count as "parent").
+        children: dict[int, list[int]] = {}
+        for uid, mgr_id, tl_id in rows:
+            for parent_id in (mgr_id, tl_id):
+                if parent_id is not None:
+                    children.setdefault(parent_id, []).append(uid)
+
+        # BFS from user_id.
+        result: list[int] = []
+        queue: list[int]  = list(children.get(user_id, []))
+        visited: set[int] = set()
+
+        while queue:
+            nxt = queue.pop(0)
+            if nxt in visited:
+                continue          # cycle guard (shouldn't happen in valid data)
+            visited.add(nxt)
+            result.append(nxt)
+            queue.extend(children.get(nxt, []))
+
+        return result
+
+    except Exception as exc:
+        _hier_log.error("get_subordinate_ids failed for user_id=%s: %s", user_id, exc)
+        return []
+
+def is_manager_of(db: Session, manager_id: int, user_id: int) -> bool:
+    if manager_id == user_id:
+        return False
+    current = db.query(User).get(user_id)
+    while current:
+        reports_to = current.team_lead_id or current.manager_id
+        if reports_to == manager_id:
+            return True
+        if not reports_to:
+            break
+        current = db.query(User).get(reports_to)
+    return False
 def get_manager_team(db: Session, manager_id: int):
     """
     Manager sees team leads + their employees strictly via hierarchy.

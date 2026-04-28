@@ -1,11 +1,107 @@
 {% extends "base.html" %}
 {% block title %}Meetings — Employee CRM{% endblock %}
 {% block page_title %}Meetings{% endblock %}
-{% block content %}
 
+{% block extra_head %}
+<style>
+/* ── Multi-select participant widget ──────────────────────────────── */
+.participant-select-wrapper select[multiple] {
+  width: 100%;
+  min-height: 110px;
+  max-height: 150px;
+  border-radius: 8px;
+  border: 1.5px solid var(--primary, #6366f1);
+  padding: 4px 6px;
+  font-size: 13px;
+  background: var(--card-bg, #fff);
+  cursor: pointer;
+}
+.participant-select-wrapper select[multiple] option:checked {
+  background: var(--primary, #6366f1);
+  color: #fff;
+}
+.participant-search {
+  width: 100%;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--gray-300, #d1d5db);
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--card-bg, #fff);
+}
+.participant-helper-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  gap: 6px;
+}
+.participant-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary, #6366f1);
+  background: #ede9fe;
+  border-radius: 99px;
+  padding: 2px 10px;
+}
+.participant-helper-bar button {
+  background: none;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--gray-500, #6b7280);
+}
+.participant-helper-bar button:hover {
+  background: var(--primary, #6366f1);
+  color: #fff;
+  border-color: var(--primary, #6366f1);
+}
+
+/* ── Participant chip list (read view) ────────────────────────────── */
+.participant-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+.participant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #ede9fe;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+  border-radius: 99px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Meeting card ─────────────────────────────────────────────────── */
+.meeting-card {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--gray-100, #f3f4f6);
+  transition: background .15s;
+}
+.meeting-card:last-child { border-bottom: none; }
+.meeting-card:hover { background: var(--gray-50, #f9fafb); }
+
+/* ── Mobile ───────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .meeting-header { flex-direction: column !important; gap: 6px !important; }
+  .participant-select-wrapper select[multiple] { min-height: 90px; }
+  .participant-chips { gap: 4px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
 <div style="max-width:860px;">
 
-  <!-- ── Schedule form (admin / manager / team_lead only) ────────────────────────── -->
+  <!-- ── Schedule meeting form (managers / admins / team_leads) ──────── -->
   {% if current_user.role in ['admin', 'manager', 'team_lead'] %}
   <div class="card" style="margin-bottom:24px; border-left:4px solid var(--primary);">
     <div class="card-header">
@@ -13,43 +109,79 @@
     </div>
     <div class="card-body">
       <form method="post" action="/meetings/create"
-            style="display:flex; flex-direction:column; gap:12px;">
+            id="meetingForm"
+            style="display:flex; flex-direction:column; gap:14px;">
+
         <div>
-          <label class="form-label">Title</label>
+          <label class="form-label">Title *</label>
           <input type="text" name="title" class="form-control"
                  placeholder="Meeting title…" required>
         </div>
+
         <div>
-          <label class="form-label">Participant <span class="text-muted">(Required)</span></label>
-          <select name="participant_id" class="form-control" required>
-            <option value="" disabled selected>Select participant...</option>
-            {% for u in filtered_users %}
-            <option value="{{ u.id }}">{{ u.name }} ({{ u.role.value | capitalize }})</option>
-            {% endfor %}
-          </select>
+          <label class="form-label">
+            Participants *
+            <span class="text-muted" style="font-size:11px;font-weight:400;">
+              Hold Ctrl / ⌘ to select multiple
+            </span>
+          </label>
+          <div class="participant-select-wrapper">
+            <input type="text" id="participantSearch" class="participant-search"
+                   placeholder="🔍 Filter names…"
+                   oninput="filterParticipantOptions()" />
+            <div class="participant-helper-bar">
+              <span class="participant-count" id="participantCount">0 selected</span>
+              <div style="display:flex;gap:4px;">
+                <button type="button" onclick="selectAllParticipants()">Select All</button>
+                <button type="button" onclick="clearParticipants()">Clear</button>
+              </div>
+            </div>
+            <select name="participant_ids" id="participantSelect" multiple
+                    onchange="updateParticipantCount()">
+              {% for u in filtered_users %}
+              <option value="{{ u.id }}">
+                {{ u.name }}{% if u.department %} · {{ u.department }}{% endif %} ({{ u.role.value | capitalize }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <span id="participantWarn"
+                style="display:none;color:#ef4444;font-size:12px;font-weight:600;margin-top:4px;">
+            ⚠ Please select at least one participant.
+          </span>
         </div>
+
         <div>
-          <label class="form-label">Agenda / Description <span class="text-muted">(optional)</span></label>
+          <label class="form-label">Agenda / Description
+            <span class="text-muted" style="font-size:11px;font-weight:400;">(optional)</span>
+          </label>
           <textarea name="description" class="form-control" rows="2"
                     placeholder="Agenda, topics to cover…"></textarea>
         </div>
+
         <div>
-          <label class="form-label">Date &amp; Time</label>
-          <input type="datetime-local" name="scheduled_time" class="form-control"
-                 style="max-width:280px;" required>
+          <label class="form-label">Date &amp; Time *</label>
+          <input type="datetime-local" name="scheduled_time" id="meeting-scheduled-time"
+                 class="form-control" style="max-width:280px;" required>
         </div>
+
         <div>
           <button type="submit" class="btn btn-primary">Schedule Meeting</button>
+          <span id="meetingSubmitWarn"
+                style="display:none;margin-left:10px;color:#ef4444;font-size:12px;font-weight:600;">
+            ⚠ Select at least one participant.
+          </span>
         </div>
+
       </form>
     </div>
   </div>
   {% endif %}
 
-  <!-- ── Meeting list ────────────────────────────────────────────────────── -->
+  <!-- ── Meeting list ───────────────────────────────────────────────── -->
   <div class="card">
-    <div class="card-header">
-      <h2 style="font-size:15px;">📋 Scheduled Meetings</h2>
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <h2 style="font-size:15px;margin:0;">📋 Scheduled Meetings</h2>
       <span class="text-muted text-sm">{{ meetings | length }} visible to you</span>
     </div>
     <div class="card-body" style="padding:0;">
@@ -58,17 +190,20 @@
       <div style="display:flex; flex-direction:column;">
         {% for m in meetings %}
         {% set is_future = m.scheduled_time > now if now is defined else true %}
-        <div style="padding:18px 20px; border-bottom:1px solid var(--gray-100);">
+        {% set ptcps = participant_map.get(m.id, []) %}
 
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;
-                      gap:12px; flex-wrap:wrap; margin-bottom:6px;">
+        <div class="meeting-card">
+          <div class="meeting-header" style="display:flex; justify-content:space-between;
+                align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
             <h3 style="margin:0; font-size:15px; font-weight:700; color:var(--gray-900);">
               {{ m.title }}
+              {% if not is_future %}
+              <span class="badge badge-gray" style="font-size:10px;vertical-align:middle;">Past</span>
+              {% endif %}
             </h3>
             <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-              <span class="badge
-                {% if m.creator_role == 'manager' %}badge-info{% else %}badge-gray{% endif %}"
-                style="font-size:10px; text-transform:capitalize;">
+              <span class="badge {% if m.creator_role == 'manager' %}badge-info{% else %}badge-gray{% endif %}"
+                    style="font-size:10px; text-transform:capitalize;">
                 {{ m.creator_role.replace('_', ' ') }}
               </span>
               <span style="font-size:12px; font-weight:600; color:var(--primary);">
@@ -78,22 +213,39 @@
           </div>
 
           {% if m.description %}
-          <p style="margin:0 0 6px 0; font-size:13.5px; color:var(--gray-700);
+          <p style="margin:0 0 8px; font-size:13.5px; color:var(--gray-700);
                     line-height:1.55; white-space:pre-line;">{{ m.description }}</p>
           {% else %}
-          <p style="margin:0 0 6px 0; font-size:13px; color:var(--gray-400);">
+          <p style="margin:0 0 8px; font-size:13px; color:var(--gray-400);">
             No description provided.
           </p>
           {% endif %}
+
+          <!-- Participants -->
+          <div style="margin-bottom:6px;">
+            <span style="font-size:11px;font-weight:600;color:var(--gray-500);
+                         text-transform:uppercase;letter-spacing:.05em;">
+              Participants ({{ ptcps | length }})
+            </span>
+            {% if ptcps %}
+            <div class="participant-chips" style="margin-top:4px;">
+              {% for name in ptcps %}
+              <span class="participant-chip">👤 {{ name }}</span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-muted text-sm" style="margin-left:6px;">—</span>
+            {% endif %}
+          </div>
 
           <div style="font-size:11px; color:var(--gray-500);">
             Scheduled by: <strong>{{ m.creator_role.replace('_', ' ').title() }}</strong>
             &nbsp;·&nbsp; Created {{ m.created_at.strftime('%b %d, %Y') }}
           </div>
-
         </div>
         {% endfor %}
       </div>
+
       {% else %}
       <div style="padding:48px 20px; text-align:center;">
         <div style="font-size:40px; margin-bottom:10px;">📭</div>
@@ -110,5 +262,64 @@
   </div>
 
 </div>
+
+<script>
+/* ── Datetime min ──────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function () {
+  const st = document.getElementById('meeting-scheduled-time');
+  if (st) st.min = new Date().toISOString().slice(0, 16);
+  updateParticipantCount();
+});
+
+/* ── Participant multi-select helpers ──────────────────────────────── */
+function updateParticipantCount() {
+  const sel   = document.getElementById('participantSelect');
+  const badge = document.getElementById('participantCount');
+  if (!sel || !badge) return;
+  const n = Array.from(sel.options).filter(o => o.selected && !o.hidden).length;
+  badge.textContent = n === 0 ? '0 selected' : n + ' selected';
+  badge.style.background = n > 0 ? 'var(--primary,#6366f1)' : '#ede9fe';
+  badge.style.color      = n > 0 ? '#fff' : 'var(--primary,#6366f1)';
+}
+
+function selectAllParticipants() {
+  const sel = document.getElementById('participantSelect');
+  if (!sel) return;
+  Array.from(sel.options).forEach(o => { if (!o.hidden) o.selected = true; });
+  updateParticipantCount();
+}
+
+function clearParticipants() {
+  const sel = document.getElementById('participantSelect');
+  if (!sel) return;
+  Array.from(sel.options).forEach(o => o.selected = false);
+  updateParticipantCount();
+}
+
+function filterParticipantOptions() {
+  const q   = (document.getElementById('participantSearch').value || '').toLowerCase();
+  const sel = document.getElementById('participantSelect');
+  if (!sel) return;
+  Array.from(sel.options).forEach(o => {
+    o.hidden = q ? !o.text.toLowerCase().includes(q) : false;
+  });
+  updateParticipantCount();
+}
+
+/* ── Form submit guard ─────────────────────────────────────────────── */
+(function () {
+  const form = document.getElementById('meetingForm');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    const sel  = document.getElementById('participantSelect');
+    const warn = document.getElementById('meetingSubmitWarn');
+    if (sel && Array.from(sel.options).filter(o => o.selected).length === 0) {
+      e.preventDefault();
+      if (warn) { warn.style.display = 'inline'; setTimeout(() => warn.style.display = 'none', 3500); }
+      sel.focus();
+    }
+  });
+})();
+</script>
 
 {% endblock %}

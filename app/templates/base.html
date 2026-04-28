@@ -67,6 +67,20 @@
     .notif-type-leave_approved { border-left: 3px solid var(--success); }
     .notif-type-leave_rejected { border-left: 3px solid var(--danger); }
     .notif-type-info           { border-left: 3px solid var(--gray-400); }
+    /* ── Sidebar module badges ──────────────────────────────────────── */
+    .nav-badge {
+      display: none;
+      min-width: 17px; height: 17px;
+      background: var(--danger, #ef4444); color: #fff;
+      font-size: 10px; font-weight: 700; border-radius: 99px;
+      align-items: center; justify-content: center; padding: 0 4px;
+      margin-left: auto; flex-shrink: 0; line-height: 1;
+    }
+    .nav-badge.visible { display: inline-flex; }
+    /* ── Priority-based toast overrides ─────────────────────────────── */
+    .toast.priority-high   { background: #dc2626; border-left: 4px solid #7f1d1d; }
+    .toast.priority-normal { background: #1d4ed8; border-left: 4px solid #1e3a8a; }
+    .toast.priority-low    { background: #4b5563; border-left: 4px solid #1f2937; }
   </style>
 </head>
 <body data-page="{{ request.url.path }}">
@@ -87,9 +101,11 @@
       </a>
       <a class="nav-link {% if request.url.path.startswith('/tasks') %}active{% endif %}" href="/tasks/">
         <span class="icon">✅</span> Tasks
+        <span class="nav-badge" id="nb-task"></span>
       </a>
       <a class="nav-link {% if request.url.path.startswith('/leaves') %}active{% endif %}" href="/leaves/">
         <span class="icon">📅</span> Leaves
+        <span class="nav-badge" id="nb-leave"></span>
       </a>
       <a class="nav-link {% if request.url.path.startswith('/analytics') %}active{% endif %}" href="/analytics/">
         <span class="icon">📈</span> Analytics
@@ -102,16 +118,20 @@
       <div class="nav-section-title">Communication</div>
       <a class="nav-link {% if request.url.path.startswith('/announcements') %}active{% endif %}" href="/announcements/">
         <span class="icon">📢</span> Announcements
+        <span class="nav-badge" id="nb-announcement"></span>
       </a>
       <a class="nav-link {% if request.url.path.startswith('/meetings') %}active{% endif %}" href="/meetings/">
         <span class="icon">🤝</span> Meetings
+        <span class="nav-badge" id="nb-meeting"></span>
       </a>
       <a class="nav-link {% if request.url.path.startswith('/chat') %}active{% endif %}" href="/chat/">
         <span class="icon">💬</span> Chat
+        <span class="nav-badge" id="nb-chat"></span>
       </a>
       {% if current_user and current_user.role not in ('security_guard',) %}
       <a class="nav-link {% if request.url.path.startswith('/expense') %}active{% endif %}" href="/expense/">
         <span class="icon">💰</span> Expenses
+        <span class="nav-badge" id="nb-expense"></span>
       </a>
       {% endif %}
       {% if current_user %}
@@ -122,10 +142,12 @@
       </a>
       <a class="nav-link {% if request.url.path.startswith('/visitor/my-logs') %}active{% endif %}" href="/visitor/my-logs">
         <span class="icon">📋</span> My Logs
+        <span class="nav-badge" id="nb-visitor"></span>
       </a>
       {% elif current_user.role in ('admin', 'manager') %}
       <a class="nav-link {% if request.url.path.startswith('/visitor/pending') %}active{% endif %}" href="/visitor/pending">
         <span class="icon">⏳</span> Visitor Approvals
+        <span class="nav-badge" id="nb-visitor"></span>
       </a>
       <a class="nav-link {% if request.url.path == '/visitor/' %}active{% endif %}" href="/visitor/">
         <span class="icon">📋</span> Visitor Log
@@ -295,7 +317,24 @@
     try {
       fetch('/notifications/unread')
         .then(r => r.json())
-        .then(data => updateBadge(data.unread_count || 0))
+        .then(data => {
+          updateBadge(data.unread_count || 0);
+          // ── Per-module sidebar badges ──────────────────────────────────
+          [
+            ['nb-task',         data.task         || 0],
+            ['nb-leave',        data.leave        || 0],
+            ['nb-meeting',      data.meeting      || 0],
+            ['nb-chat',         data.chat         || 0],
+            ['nb-announcement', data.announcement || 0],
+            ['nb-expense',      data.expense      || 0],
+            ['nb-visitor',      data.visitor      || 0],
+          ].forEach(function([id, count]) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = count > 9 ? '9+' : (count || '');
+            el.classList.toggle('visible', count > 0);
+          });
+        })
         .catch(() => {});
     } catch(e) {}
   }
@@ -352,7 +391,7 @@
 window.showToast = function(msg, type, duration) {
   try {
     const container = document.getElementById('toast-container');
-    if (!container) return;
+    if (!container) return null;
     const icons = { success:'✅', danger:'❌', warning:'⚠️', info:'ℹ️' };
     const t = document.createElement('div');
     t.className = 'toast toast-' + (type || 'info');
@@ -363,11 +402,130 @@ window.showToast = function(msg, type, duration) {
       t.classList.add('hide');
       setTimeout(() => t.remove(), 350);
     }, ms);
-  } catch(e) {}
+    return t;   // caller can add extra classes (e.g. priority-high)
+  } catch(e) { return null; }
 };
 </script>
 
+<script>
+/* ── WebSocket real-time notifications ─────────────────────────────────
+   Connects to /ws/notifications/{user_id}.
+   On message → updates sidebar badges (pollUnread) + shows a toast.
+   Auto-reconnects with capped exponential backoff on disconnect.
+   Falls back gracefully to the 60 s polling if WS is unavailable.      */
+(function () {
+  'use strict';
+
+  const USER_ID = {{ current_user.user_id | int }};
+  if (!USER_ID) return;
+
+  const PROTOCOL  = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const WS_URL    = PROTOCOL + '//' + location.host + '/ws/notifications/' + USER_ID;
+  const MAX_DELAY = 30000;   // cap reconnect backoff at 30 s
+  let   delay     = 1000;
+  let   ws        = null;
+
+  const moduleIcon = {
+    task:         '✅',
+    leave:        '📅',
+    meeting:      '🤝',
+    chat:         '💬',
+    announcement: '📢',
+    expense:      '💰',
+    visitor:      '🪪',
+  };
+
+  function connect() {
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch(e) { return; }
+
+    ws.onopen = function () {
+      delay = 1000;   // reset backoff on successful connect
+    };
+
+    ws.onmessage = function (evt) {
+      try {
+        const data = JSON.parse(evt.data);
+        // 1. Refresh all sidebar badges + bell counter (single API call)
+        if (typeof pollUnread === 'function') pollUnread();
+        // 2. Show a priority-aware toast
+        const icon     = moduleIcon[data.module] || '🔔';
+        const priority = data.priority || 'normal';
+        const toastType = priority === 'high' ? 'danger'
+                        : priority === 'low'  ? 'info'
+                        : 'info';
+        if (typeof showToast === 'function') {
+          const t = showToast(icon + ' ' + (data.message || 'New notification'), toastType, 4000);
+          // Add priority class for colour override
+          if (t && t.classList) t.classList.add('priority-' + priority);
+        }
+        // 3. Sound alert for high-priority (Web Audio API — no file needed)
+        if (priority === 'high') {
+          try {
+            const ac  = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.connect(gain); gain.connect(ac.destination);
+            osc.frequency.value = 880;
+            gain.gain.setValueAtTime(0.25, ac.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
+            osc.start(ac.currentTime); osc.stop(ac.currentTime + 0.6);
+          } catch(e) {}
+        }
+      } catch(e) {}
+    };
+
+    ws.onclose = function () {
+      ws = null;
+      // Reconnect with exponential backoff (capped at MAX_DELAY)
+      setTimeout(function () {
+        delay = Math.min(delay * 2, MAX_DELAY);
+        connect();
+      }, delay);
+    };
+
+    ws.onerror = function () {
+      try { ws.close(); } catch(e) {}
+    };
+  }
+
+  connect();
+})();
+</script>
+
+<script>
+/* ── Auto-mark-as-read on module page visit ────────────────────────────
+   Derives the current module from the URL path segment and fires
+   POST /notifications/read-module/{module} once on load.
+   Badge will refresh on the next pollUnread() call (≤ 60 s).            */
+(function () {
+  'use strict';
+  const PATH_TO_MODULE = {
+    '/tasks':           'task',
+    '/leaves':          'leave',
+    '/meetings':        'meeting',
+    '/chat':            'chat',
+    '/announcements':   'announcement',
+    '/expense':         'expense',
+    '/visitor/my-logs': 'visitor',   // guard: clears approval result badges
+    '/visitor/pending': 'visitor',   // manager/admin: clears new-registration badges
+    '/visitor/':        'visitor',   // admin/manager full log view
+  };
+  const path   = location.pathname.replace(/\/+$/, '') || '/';
+  const prefix = Object.keys(PATH_TO_MODULE).find(k => path.startsWith(k));
+  if (!prefix) return;
+  const module = PATH_TO_MODULE[prefix];
+  try {
+    fetch('/notifications/read-module/' + module, { method: 'POST' })
+      .then(() => { if (typeof pollUnread === 'function') pollUnread(); })
+      .catch(() => {});
+  } catch(e) {}
+})();
+</script>
+
 {% endif %}
+
 <!-- Mobile sidebar toggle -->
 <script>
 (function () {

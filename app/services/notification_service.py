@@ -40,12 +40,19 @@ def create_notification_from_audit(db: Session, audit_log) -> Notification | Non
         user_ids_to_notify = []
         message = ""
 
-        # 1. Task Assigned
+        # 1. Task Assigned — notify all assignees via task_assignments
         if audit_log.action.value == "task_created" and audit_log.target_type == "task":
             task = db.query(Task).filter(Task.id == audit_log.target_id).first()
-            if task and task.assigned_to and task.assigned_to != audit_log.actor_id:
-                user_ids_to_notify.append(task.assigned_to)
-                message = f'You have a new task: "{task.title}"'
+            if task:
+                from app.models.task import TaskAssignment as _TA
+                assignees = db.query(_TA).filter(
+                    _TA.task_id == task.id,
+                    _TA.user_id != audit_log.actor_id,
+                ).all()
+                for a in assignees:
+                    user_ids_to_notify.append(a.user_id)
+                if assignees:
+                    message = f'You have a new task: "{task.title}"'
 
         # 2. Leave Applied
         elif audit_log.action.value == "leave_applied" and audit_log.target_type == "leave":
@@ -73,10 +80,20 @@ def create_notification_from_audit(db: Session, audit_log) -> Notification | Non
         # Also collect (user_id → email) for the email delivery step below.
         from app.models.user import User  # local import avoids circular deps
 
-        saved_notif = None
-        uid_to_email: dict[int, str] = {}
+        unique_uids = set(user_ids_to_notify)
 
-        for uid in set(user_ids_to_notify):
+        # Batch-load all recipient emails in ONE query (avoids N+1).
+        try:
+            uid_to_email: dict[int, str] = {
+                u.id: u.email
+                for u in db.query(User).filter(User.id.in_(unique_uids)).all()
+                if u.email
+            }
+        except Exception:
+            uid_to_email = {}
+
+        saved_notif = None
+        for uid in unique_uids:
             notif = Notification(
                 user_id=uid,
                 audit_log_id=audit_log.id,
@@ -85,14 +102,6 @@ def create_notification_from_audit(db: Session, audit_log) -> Notification | Non
             )
             db.add(notif)
             saved_notif = notif
-
-            # Grab the recipient's email address while we have the session open.
-            try:
-                user = db.query(User).filter(User.id == uid).first()
-                if user and user.email:
-                    uid_to_email[uid] = user.email
-            except Exception:
-                pass  # email delivery is best-effort; skip if lookup fails
 
         db.commit()
         if saved_notif:
@@ -247,12 +256,29 @@ def create_task_notification(
     user_id: int,
     message: str,
     notif_type: str = "info",   # kept for forward-compat; stored as plain message
+    actor_id: int | None = None,
 ) -> bool:
     """
     Create a single notification for *user_id* directly.
-    Safe to call from task routes — returns True on success, False on any error.
+
+    Args:
+        user_id:   Recipient of the notification.
+        message:   Notification text.
+        notif_type: Ignored (kept for API compat); all notifications stored as info.
+        actor_id:  Optional; if equal to *user_id* the notification is suppressed
+                   to prevent self-notifications (e.g. manager assigns task to self).
+
+    Returns True on success, False on any error.
     Deliberately fire-and-forget: failures never propagate to callers.
     """
+    # ── Self-notification guard ──────────────────────────────────────────
+    if actor_id is not None and actor_id == user_id:
+        logger.debug(
+            "create_task_notification: suppressed self-notification for user_id=%s",
+            user_id,
+        )
+        return True   # treat as success: nothing to do
+
     try:
         notif = Notification(
             user_id=user_id,
@@ -261,11 +287,154 @@ def create_task_notification(
         )
         db.add(notif)
         db.commit()
+        logger.debug(
+            "Notification created for user_id=%s: %s",
+            user_id, message[:60],
+        )
         return True
     except Exception as exc:
-        logger.warning("create_task_notification failed for user_id=%s: %s", user_id, exc)
+        logger.warning(
+            "create_task_notification FAILED for user_id=%s — %s: %s",
+            user_id, type(exc).__name__, exc,
+        )
         try:
             db.rollback()
         except Exception:
             pass
         return False
+
+
+# ---------------------------------------------------------------------------
+# 6.  Unified module-aware notification creator (preferred for new code)
+# ---------------------------------------------------------------------------
+
+VALID_MODULES = frozenset({
+    "task", "leave", "meeting", "chat", "announcement", "expense", "visitor",
+})
+
+VALID_PRIORITIES = frozenset({"low", "normal", "high"})
+
+
+def create_notification(
+    db: Session,
+    user_id: int,
+    module: str,
+    message: str,
+    entity_id: int | None = None,
+    actor_id: int | None = None,
+    priority: str = "normal",
+) -> bool:
+    """
+    Create a module-tagged notification for *user_id*.
+
+    Args:
+        user_id:   Recipient.
+        module:    One of: task | leave | meeting | chat | announcement | expense.
+        message:   Human-readable notification text.
+        entity_id: Optional ID of the triggering entity (task.id, leave.id …).
+        actor_id:  If equal to user_id the notification is suppressed (self-guard).
+
+    Returns True on success, False on failure.
+    Fire-and-forget — never propagates exceptions to callers.
+    """
+    if actor_id is not None and actor_id == user_id:
+        logger.debug(
+            "create_notification: suppressed self-notification user_id=%s module=%s",
+            user_id, module,
+        )
+        return True
+
+    _module   = module   if module   in VALID_MODULES    else "task"
+    _priority = priority if priority in VALID_PRIORITIES else "normal"
+
+    try:
+        notif = Notification(
+            user_id=user_id,
+            module=_module,
+            entity_id=entity_id,
+            message=message,
+            priority=_priority,
+            is_read=False,
+        )
+        db.add(notif)
+        db.commit()
+        logger.debug(
+            "[%s][%s] Notification created for user_id=%s entity_id=%s: %s",
+            _module, _priority, user_id, entity_id, message[:60],
+        )
+
+        # ── Real-time WebSocket push (fire-and-forget) ───────────────────────────
+        # Works in async FastAPI route context; silently skips in sync callers.
+        try:
+            import asyncio
+            from app.routes.ws_notifications import push_notification as _ws_push
+            asyncio.get_running_loop().create_task(
+                _ws_push(user_id, {
+                    "module":   _module,
+                    "message":  message,
+                    "priority": _priority,
+                })
+            )
+        except RuntimeError:
+            pass   # no running event loop — sync caller, polling will catch it
+        except Exception:
+            pass   # WS push is best-effort; never fail the DB write
+
+        return True
+    except Exception as exc:
+        logger.warning(
+            "create_notification FAILED user_id=%s module=%s — %s: %s",
+            user_id, _module, type(exc).__name__, exc,
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 7.  Per-module unread counts (for sidebar badges + bell API)
+# ---------------------------------------------------------------------------
+
+def get_unread_by_module(db: Session, user_id: int) -> dict:
+    """
+    Return a dict with total unread count and per-module breakdown.
+    Example::
+
+        {
+            "total": 5,
+            "task": 2, "leave": 1, "meeting": 0,
+            "chat": 1, "announcement": 1, "expense": 0,
+        }
+
+    Safe — returns zeroed dict on any failure.
+    """
+    _zero = {"total": 0, "task": 0, "leave": 0, "meeting": 0,
+             "chat": 0, "announcement": 0, "expense": 0, "visitor": 0}
+    try:
+        from sqlalchemy import func as _func
+        rows = (
+            db.query(Notification.module, _func.count(Notification.id))
+            .filter(
+                Notification.user_id == user_id,
+                Notification.is_read == False,  # noqa: E712
+            )
+            .group_by(Notification.module)
+            .all()
+        )
+        data: dict[str | None, int] = {row[0]: row[1] for row in rows}
+        total = sum(data.values())
+        return {
+            "total":        total,
+            "task":         data.get("task",         0),
+            "leave":        data.get("leave",        0),
+            "meeting":      data.get("meeting",      0),
+            "chat":         data.get("chat",         0),
+            "announcement": data.get("announcement", 0),
+            "expense":      data.get("expense",      0),
+            "visitor":      data.get("visitor",      0),
+        }
+    except Exception as exc:
+        logger.warning("get_unread_by_module FAILED user_id=%s: %s", user_id, exc)
+        return _zero

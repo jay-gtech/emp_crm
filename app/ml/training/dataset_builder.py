@@ -125,21 +125,22 @@ def _load_from_db() -> list[dict]:
             )
 
             for emp in employees:
-                # Live feature counts
-                active = db.query(func.count(Task.id)).filter(
-                    Task.assigned_to == emp.id,
-                    Task.status.in_([TaskStatus.pending, TaskStatus.in_progress]),
+                # Live feature counts via task_assignments (single source of truth)
+                from app.models.task import TaskAssignment as _TA
+                active = db.query(func.count(_TA.id)).join(Task, _TA.task_id == Task.id).filter(
+                    _TA.user_id == emp.id,
+                    _TA.status.in_(["assigned", "in_progress", "pending"]),
                 ).scalar() or 0
 
-                overdue = db.query(func.count(Task.id)).filter(
-                    Task.assigned_to == emp.id,
-                    Task.status.in_([TaskStatus.pending, TaskStatus.in_progress]),
+                overdue = db.query(func.count(_TA.id)).join(Task, _TA.task_id == Task.id).filter(
+                    _TA.user_id == emp.id,
+                    _TA.status.in_(["assigned", "in_progress", "pending"]),
                     Task.due_date < today,
                 ).scalar() or 0
 
-                completed = db.query(func.count(Task.id)).filter(
-                    Task.assigned_to == emp.id,
-                    Task.status == TaskStatus.completed,
+                completed = db.query(func.count(_TA.id)).filter(
+                    _TA.user_id == emp.id,
+                    _TA.status == "completed",
                 ).scalar() or 0
 
                 perf = float(emp.performance_score) if emp.performance_score else FEATURE_DEFAULTS["performance_score"]

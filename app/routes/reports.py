@@ -103,9 +103,9 @@ def reports_home(
         eod_reports  = get_eod_reports(db, uid)
 
     elif role in _MANAGER_ROLES:
-        all_raw     = get_all_reports(db, date_filter=active_filter)
+        all_raw     = get_all_reports(db, date_filter=active_filter, request_user=current_user)
         all_reports = enrich_reports_with_names(db, all_raw)
-        raw_eod     = get_all_eod_reports(db)
+        raw_eod     = get_all_eod_reports(db, request_user=current_user)
         all_eod     = enrich_eod_with_names(db, raw_eod)
 
     return templates.TemplateResponse(

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi import HTTPException
 
-from app.models.task import Task, TaskStatus, TaskPriority
+from app.models.task import Task
 from app.models.user import User, UserRole
 from app.services.hierarchy_service import get_manager_team, get_team_lead_members
 from app.ml.auto_assignment.scorer import (
@@ -91,30 +91,34 @@ def get_employee_features(db: Session, employee: User) -> dict:
     """
     today = datetime.date.today()
 
+    from app.models.task import TaskAssignment as _TA
     active_tasks = (
-        db.query(func.count(Task.id))
+        db.query(func.count(_TA.id))
+        .join(Task, _TA.task_id == Task.id)
         .filter(
-            Task.assigned_to == employee.id,
-            Task.status.in_([TaskStatus.pending, TaskStatus.in_progress]),
+            _TA.user_id == employee.id,
+            _TA.status.in_(["pending", "in_progress", "assigned"]),
         )
         .scalar() or 0
     )
 
     overdue_tasks = (
-        db.query(func.count(Task.id))
+        db.query(func.count(_TA.id))
+        .join(Task, _TA.task_id == Task.id)
         .filter(
-            Task.assigned_to == employee.id,
-            Task.status.in_([TaskStatus.pending, TaskStatus.in_progress]),
+            _TA.user_id == employee.id,
+            _TA.status.in_(["pending", "in_progress", "assigned"]),
             Task.due_date < today,
         )
         .scalar() or 0
     )
 
     completed_tasks = (
-        db.query(func.count(Task.id))
+        db.query(func.count(_TA.id))
+        .join(Task, _TA.task_id == Task.id)
         .filter(
-            Task.assigned_to == employee.id,
-            Task.status == TaskStatus.completed,
+            _TA.user_id == employee.id,
+            _TA.status == "completed",
         )
         .scalar() or 0
     )
@@ -191,7 +195,7 @@ def auto_assign_task(
             ranked = [best]
 
         # ── 4. Commit assignment ──────────────────────────────────────────────
-        task.assigned_to = best["employee_id"]
+        # assignment tracking is done exclusively via task_assignments
         db.commit()
         db.refresh(task)
 

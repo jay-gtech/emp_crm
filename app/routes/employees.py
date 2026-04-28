@@ -1,4 +1,13 @@
-from fastapi import APIRouter, Request, Form, Depends
+from fastapi import APIRouter, Request, Form, Depends, HTTPException
+
+from app.core.validators import validate_text as _validate_text
+from app.core.constants  import MAX_NAME_LENGTH
+
+
+def _validate_emp_name(name: str) -> str:
+    """Thin wrapper — delegates to the central validator."""
+    return _validate_text(name, field="Employee name", max_len=MAX_NAME_LENGTH)
+
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -64,6 +73,7 @@ def create_employee_post(
     current_user: dict = Depends(role_required("admin")),
 ):
     try:
+        name = _validate_emp_name(name)
         create_employee(
             db, name, email.strip().lower(), password, role,
             department or None, reports_to_id=reports_to_id or None,
@@ -105,6 +115,7 @@ def edit_employee(
     current_user: dict = Depends(role_required("admin")),
 ):
     try:
+        name = _validate_emp_name(name)
         update_employee(db, employee_id, name=name, department=department or None, role=role)
         if _AUDIT_OK:
             try:

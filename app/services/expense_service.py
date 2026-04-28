@@ -14,6 +14,9 @@ from app.models.expense import ExpenseGroup, ExpenseMember
 
 logger = logging.getLogger(__name__)
 
+# Maximum allowed expense amount (mirrors frontend validation)
+MAX_EXPENSE_AMOUNT = 1_000_000.00
+
 
 class ExpenseError(Exception):
     """Domain-level error for expense operations."""
@@ -38,6 +41,11 @@ def create_expense_group(
         raise ExpenseError("Expense title cannot be empty.")
     if total_amount <= 0:
         raise ExpenseError("Total amount must be greater than zero.")
+    if total_amount > MAX_EXPENSE_AMOUNT:
+        raise ExpenseError(
+            f"Total amount exceeds the maximum allowed value of "
+            f"{MAX_EXPENSE_AMOUNT:,.2f}. Please enter a realistic expense amount."
+        )
 
     group = ExpenseGroup(
         title=title,
@@ -115,7 +123,7 @@ def add_members(
     n = len(all_members)
     if n == 0:
         raise ExpenseError("Group has no members.")
-    share = round(group.total_amount / n, 2)
+    share = round(float(group.total_amount) / n, 2)
     for m in all_members:
         m.amount_share = share
 
@@ -226,7 +234,7 @@ def get_group_detail(db: Session, group_id: int, requester_id: int) -> dict | No
         return {
             "id":            group.id,
             "title":         group.title,
-            "total_amount":  group.total_amount,
+            "total_amount":  float(group.total_amount),
             "created_by":    group.created_by,
             "creator_name":  creator.name if creator else "Unknown",
             "created_at":    group.created_at,
@@ -236,7 +244,7 @@ def get_group_detail(db: Session, group_id: int, requester_id: int) -> dict | No
                 {
                     "user_id":      m.user_id,
                     "user_name":    users.get(m.user_id, type("X", (), {"name": "Unknown"})()).name,
-                    "amount_share": m.amount_share,
+                    "amount_share": float(m.amount_share),
                     "status":       m.status,
                 }
                 for m in members
@@ -294,10 +302,10 @@ def get_my_groups(db: Session, user_id: int) -> list[dict]:
             result.append({
                 "id":           g.id,
                 "title":        g.title,
-                "total_amount": g.total_amount,
+                "total_amount": float(g.total_amount),
                 "created_by":   g.created_by,
                 "created_at":   g.created_at,
-                "my_share":     m.amount_share if m else 0.0,
+                "my_share":     float(m.amount_share) if m else 0.0,
                 "my_status":    m.status if m else "pending",
                 "is_creator":   g.created_by == user_id,
             })

@@ -19,6 +19,12 @@ from app.services.announcement_service import (
     get_visible_announcements,
 )
 
+# Notification helper — imported defensively
+try:
+    from app.services.notification_service import create_notification as _notif
+except Exception:
+    def _notif(*a, **kw): pass  # noqa
+
 router    = APIRouter(tags=["announcements"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -82,7 +88,7 @@ def create_announcement_post(
             )
 
     try:
-        create_announcement(
+        ann = create_announcement(
             db=db,
             title=title,
             message=message,
@@ -95,6 +101,23 @@ def create_announcement_post(
         return RedirectResponse(
             f"/announcements/?error={quote(str(exc))}", status_code=303
         )
+
+    # ── Notify recipients ─────────────────────────────────────────────────
+    try:
+        if audience_type == "specific" and target_ids:
+            recipient_ids = target_ids
+        else:
+            # broadcast — notify all active users except the poster
+            recipient_ids = [u["id"] for u in get_all_active_users(db)]
+        for uid in recipient_ids:
+            _notif(
+                db, uid, "announcement",
+                f"📢 New announcement: {title}",
+                entity_id=getattr(ann, 'id', None),
+                actor_id=current_user["user_id"],
+            )
+    except Exception:
+        pass
 
     return RedirectResponse("/announcements/?flash=created", status_code=302)
 

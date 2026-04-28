@@ -62,10 +62,10 @@ def _task_dict(t) -> dict:
         "id": t.id,
         "title": t.title,
         "description": t.description,
-        "assigned_to": t.assigned_to,
+        "assigned_to": getattr(t, "assigned_to", None),  # removed column; kept for API compat
         "assigned_by": t.assigned_by,
-        "priority": t.priority.value,
-        "status": t.status.value,
+        "priority": t.priority.value if t.priority else None,
+        "status":   t.status.value   if t.status   else None,
         "due_date": t.due_date.isoformat() if t.due_date else None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
@@ -188,8 +188,9 @@ def export_tasks_csv(
                      "status", "due_date", "created_at"])
     for t in tasks:
         writer.writerow([
-            t.id, t.title, t.assigned_to, t.assigned_by,
-            t.priority.value, t.status.value,
+            t.id, t.title, getattr(t, "assigned_to", ""), t.assigned_by,
+            t.priority.value if t.priority else "",
+            t.status.value   if t.status   else "",
             t.due_date.isoformat() if t.due_date else "",
             t.created_at.isoformat() if t.created_at else "",
         ])

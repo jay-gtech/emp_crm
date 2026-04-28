@@ -91,14 +91,24 @@ def chat_page(
 
 
 @router.post("/send")
-def send_message(
+async def send_message(
     receiver_id: int  = Form(...),
     content:     str  = Form(default=""),
+    file:        UploadFile = File(default=None),
     db:          Session = Depends(get_db),
     current_user: dict  = Depends(login_required),
 ):
-    if not content or str(content).strip() == "":
-        raise HTTPException(400, "Message cannot be empty")
+    content = (content or "").strip()
+
+    file_url: str | None = None
+    if file and file.filename:
+        try:
+            file_url = await chat_service.save_uploaded_file(file)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    if not content and not file_url:
+        raise HTTPException(400, "Message or file required")
 
     if current_user["user_id"] == receiver_id:
         raise HTTPException(400, "Cannot message self")
@@ -123,9 +133,24 @@ def send_message(
     if not allowed:
         raise HTTPException(403, "Not allowed")
 
-    message = Message(sender_id=sender_id, receiver_id=receiver_id, content=content)
+    message = Message(sender_id=sender_id, receiver_id=receiver_id, content=content, file_url=file_url)
     db.add(message)
     db.commit()
+
+    # Notify receiver — fire-and-forget (module-tagged for sidebar badge)
+    try:
+        from app.services.notification_service import create_notification as _notif
+        sender_obj = db.query(User).filter(User.id == sender_id).first()
+        sender_name = sender_obj.name if sender_obj else "Someone"
+        preview = str(content).strip()[:60] if content else "Sent a file"
+        _notif(
+            db, receiver_id, "chat",
+            f"💬 New message from {sender_name}: {preview}",
+            actor_id=sender_id,
+        )
+    except Exception:
+        pass
+
     return {"message": "Sent"}
 
 
@@ -288,6 +313,25 @@ async def send_group_message(
     except Exception:
         pass
 
+    # Notify group members who are NOT currently in the group WS (offline members)
+    try:
+        from app.services.notification_service import create_notification as _notif
+        online_uids = {
+            u_id for u_id, _ in chat_service.manager._connections.get(group_id, [])
+        }
+        sender_name = msg_dict["sender_name"]
+        preview     = (content or "Sent a file")[:60]
+        for m in chat_service.get_group_members(db, group_id):
+            mid = m.get("user_id")
+            if mid and mid != uid and mid not in online_uids:
+                _notif(
+                    db, mid, "chat",
+                    f"💬 {sender_name} in group: {preview}",
+                    actor_id=uid,
+                )
+    except Exception:
+        pass
+
     return msg_dict
 
 
@@ -333,6 +377,25 @@ async def group_ws(
                 "file_url":    msg_dict["file_url"],
                 "timestamp":   msg_dict["timestamp"],
             })
+
+            # Notify offline group members (those not in the group WS right now)
+            try:
+                from app.services.notification_service import create_notification as _notif
+                online_uids = {
+                    u_id for u_id, _ in chat_service.manager._connections.get(group_id, [])
+                }
+                sender_name = msg_dict["sender_name"]
+                preview     = content[:60]
+                for m in chat_service.get_group_members(db, group_id):
+                    mid = m.get("user_id")
+                    if mid and mid != uid and mid not in online_uids:
+                        _notif(
+                            db, mid, "chat",
+                            f"💬 {sender_name} in group: {preview}",
+                            actor_id=uid,
+                        )
+            except Exception:
+                pass
     except WebSocketDisconnect:
         chat_service.manager.disconnect(group_id, websocket)
     except Exception as exc:

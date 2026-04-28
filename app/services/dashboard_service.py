@@ -74,10 +74,11 @@ def get_employee_performance(db: Session, employee_id: int) -> dict:
 
         avg_daily_hours = round(week_hours / days_worked, 1) if days_worked > 0 else 0.0
 
-        # Personal task stats (tasks assigned *to* this user, all time)
-        tasks = db.query(Task).filter(Task.assigned_to == employee_id).all()
-        tasks_assigned = len(tasks)
-        tasks_completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
+        # Personal task stats via task_assignments (single source of truth)
+        from app.models.task import TaskAssignment as _TA, AssignmentStatus as _AS
+        assignments = db.query(_TA).filter(_TA.user_id == employee_id).all()
+        tasks_assigned = len(assignments)
+        tasks_completed = sum(1 for a in assignments if a.status == _AS.completed)
         task_completion_rate = (
             round(tasks_completed / tasks_assigned * 100)
             if tasks_assigned > 0
@@ -333,10 +334,11 @@ def get_team_performance(db: Session, request_user: dict | None = None) -> list[
                     elapsed = (now - rec.clock_in_time).total_seconds() / 3600
                     week_hours += max(elapsed - brk, 0.0)
 
-            # ── task stats (all-time) ────────────────────────────────────
-            tasks = db.query(Task).filter(Task.assigned_to == emp.id).all()
-            total_tasks = len(tasks)
-            completed_tasks = sum(1 for t in tasks if t.status == TaskStatus.completed)
+            # ── task stats via task_assignments ──────────────────────────
+            from app.models.task import TaskAssignment as _TA, AssignmentStatus as _AS
+            _assignments = db.query(_TA).filter(_TA.user_id == emp.id).all()
+            total_tasks = len(_assignments)
+            completed_tasks = sum(1 for a in _assignments if a.status == _AS.completed)
             task_completion_rate = (
                 round(completed_tasks / total_tasks * 100)
                 if total_tasks > 0

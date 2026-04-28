@@ -116,16 +116,19 @@
             {% if leave.review_note %}{{ leave.review_note[:40] }}{% if leave.review_note|length > 40 %}…{% endif %}{% else %}—{% endif %}
           </td>
           <td>
-            {% if leave.status.value == 'pending' %}
+            {% if leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
             <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form">
+              <input type="hidden" name="action" value="" />
               <input type="text" name="note" class="form-control" placeholder="Note…" style="font-size:12px;padding:4px 8px" />
               <div class="review-btns">
-                <button name="action" value="approved" class="btn-approve">✓ Approve</button>
-                <button name="action" value="rejected" class="btn-reject">✗ Reject</button>
+                <button type="submit" class="btn-approve" onclick="this.form.querySelector('[name=action]').value='approved'">✓ Approve</button>
+                <button type="submit" class="btn-reject"  onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
               </div>
             </form>
             {% else %}
-              <span style="color:var(--gray-300);font-size:12px">Reviewed</span>
+              <span style="color:var(--gray-300);font-size:12px">
+                {%- if leave.employee_id == current_user.user_id -%}Your leave{%- else -%}Reviewed{%- endif -%}
+              </span>
             {% endif %}
           </td>
         </tr>
@@ -147,13 +150,14 @@
       <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
       {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
-      {% if leave.status.value == 'pending' %}
+      {% if leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
       <div class="mob-card-actions">
         <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
+          <input type="hidden" name="action" value="" />
           <input type="text" name="note" class="form-control" placeholder="Note (optional)…" style="margin-bottom:6px" />
           <div style="display:flex;gap:6px">
-            <button name="action" value="approved" class="btn-approve" style="flex:1">✓ Approve</button>
-            <button name="action" value="rejected" class="btn-reject"  style="flex:1">✗ Reject</button>
+            <button type="submit" class="btn-approve" style="flex:1" onclick="this.form.querySelector('[name=action]').value='approved'">✓ Approve</button>
+            <button type="submit" class="btn-reject"  style="flex:1" onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
           </div>
         </form>
       </div>
@@ -192,11 +196,11 @@
       </div>
       <div class="form-group">
         <label class="form-label">Start Date</label>
-        <input name="start_date" type="date" class="form-control" required />
+        <input name="start_date" id="leave-start-date" type="date" class="form-control" required />
       </div>
       <div class="form-group">
         <label class="form-label">End Date</label>
-        <input name="end_date" type="date" class="form-control" required />
+        <input name="end_date" id="leave-end-date" type="date" class="form-control" required />
       </div>
       <div class="form-group">
         <label class="form-label">Reason</label>
@@ -279,16 +283,19 @@
           </td>
           {% if current_user.role in ('manager', 'team_lead') %}
           <td>
-            {% if leave.status.value == 'pending' %}
+            {% if leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
             <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form">
+              <input type="hidden" name="action" value="" />
               <input type="text" name="note" class="form-control" placeholder="Note…" style="font-size:12px;padding:4px 8px" />
               <div class="review-btns">
-                <button name="action" value="approved" class="btn-approve">✓ Approve</button>
-                <button name="action" value="rejected" class="btn-reject">✗ Reject</button>
+                <button type="submit" class="btn-approve" onclick="this.form.querySelector('[name=action]').value='approved'">✓ Approve</button>
+                <button type="submit" class="btn-reject"  onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
               </div>
             </form>
             {% else %}
-              <span style="color:var(--gray-300);font-size:12px">Reviewed</span>
+              <span style="color:var(--gray-300);font-size:12px">
+                {%- if leave.employee_id == current_user.user_id -%}Your leave{%- else -%}Reviewed{%- endif -%}
+              </span>
             {% endif %}
           </td>
           {% endif %}
@@ -314,13 +321,14 @@
       <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
       {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
-      {% if current_user.role in ('manager', 'team_lead') and leave.status.value == 'pending' %}
+      {% if current_user.role in ('manager', 'team_lead') and leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
       <div class="mob-card-actions">
         <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
+          <input type="hidden" name="action" value="" />
           <input type="text" name="note" class="form-control" placeholder="Note (optional)…" style="margin-bottom:6px" />
           <div style="display:flex;gap:6px">
-            <button name="action" value="approved" class="btn-approve" style="flex:1">✓ Approve</button>
-            <button name="action" value="rejected" class="btn-reject"  style="flex:1">✗ Reject</button>
+            <button type="submit" class="btn-approve" style="flex:1" onclick="this.form.querySelector('[name=action]').value='approved'">✓ Approve</button>
+            <button type="submit" class="btn-reject"  style="flex:1" onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
           </div>
         </form>
       </div>
@@ -340,5 +348,24 @@
 </div>
 
 {% endif %}{# end admin vs others #}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // Set minimum dates to today to prevent past-date leave applications
+  const todayStr = new Date().toISOString().split('T')[0];
+  const sd = document.getElementById('leave-start-date');
+  const ed = document.getElementById('leave-end-date');
+  if (sd) sd.min = todayStr;
+  if (ed) ed.min = todayStr;
+
+  // When start date changes, ensure end date >= start date
+  if (sd && ed) {
+    sd.addEventListener('change', function () {
+      if (ed.value && ed.value < sd.value) ed.value = sd.value;
+      ed.min = sd.value || todayStr;
+    });
+  }
+});
+</script>
 
 {% endblock %}

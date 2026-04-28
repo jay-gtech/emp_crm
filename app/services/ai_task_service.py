@@ -86,21 +86,26 @@ def get_ai_task_suggestions(db: Session, user: dict) -> list[dict]:
     uid  = user["user_id"]
     role = user.get("role", "employee")
 
-    # ── Fetch active tasks scoped to role ────────────────────────────────────
+    # ── Fetch active tasks scoped to role via task_assignments ───────────────
+    from app.models.task import TaskAssignment as _TA
     q = db.query(Task).filter(Task.status != TaskStatus.completed)
     if role == "admin":
         tasks = q.all()
     elif role in ("manager", "team_lead"):
-        tasks = q.filter(
-            (Task.assigned_by == uid) | (Task.assigned_to == uid)
-        ).all()
+        tasks = q.filter(Task.assigned_by == uid).all()
     else:
-        tasks = q.filter(Task.assigned_to == uid).all()
+        assigned_ids = [
+            a.task_id for a in
+            db.query(_TA.task_id).filter(_TA.user_id == uid).all()
+        ]
+        tasks = q.filter(Task.id.in_(assigned_ids)).all() if assigned_ids else []
 
-    # ── Per-employee active task counts (workload feature) ───────────────────
+    # ── Per-employee active task counts (workload feature) via assignments ────
     workload: dict[int, int] = defaultdict(int)
-    for t in tasks:
-        workload[t.assigned_to] += 1
+    if tasks:
+        task_ids = [t.id for t in tasks]
+        for a in db.query(_TA).filter(_TA.task_id.in_(task_ids)).all():
+            workload[a.user_id] += 1
 
     # ── Build enriched suggestions ───────────────────────────────────────────
     suggestions = []
@@ -136,7 +141,7 @@ def get_ai_task_suggestions(db: Session, user: dict) -> list[dict]:
             "at_risk_of_delay": prediction["at_risk"],
             "delay_label":      prediction["delay_label"],
             "_score":           score,
-            "workload":         workload.get(task.assigned_to, 0),
+            "workload":         workload.get(uid, 0),
         })
 
     # ── Rank by urgency score (desc) ─────────────────────────────────────────

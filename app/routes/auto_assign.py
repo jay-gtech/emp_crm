@@ -138,8 +138,10 @@ def api_auto_assign(
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
 
     # ── Scope check ───────────────────────────────────────────────────────────
-    # Prevent re-assignment of tasks that belong to a different manager's team
-    if task.assigned_to and not is_user_in_scope(db, current_user, task.assigned_to):
+    # Prevent re-assignment of tasks whose primary assignee is outside scope.
+    from app.models.task import TaskAssignment as _TA
+    primary = db.query(_TA).filter(_TA.task_id == task_id).first()
+    if primary and not is_user_in_scope(db, current_user, primary.user_id):
         raise HTTPException(
             status_code=403,
             detail="This task is outside your management scope.",

@@ -5,10 +5,10 @@ failing call never crashes the rest of the request pipeline.
 """
 from __future__ import annotations
 
+import io
 import logging
 import os
 import re
-import shutil
 import uuid
 from pathlib import Path
 
@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path("app/static/uploads/visitors")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/jpg"}
-MAX_IMAGE_BYTES = 2 * 1024 * 1024          # 2 MB
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/jpg", "image/webp"}
+MAX_IMAGE_BYTES       = 5 * 1024 * 1024   # 5 MB hard ceiling (frontend compresses first)
+_RECOMPRESS_THRESHOLD = 2 * 1024 * 1024   # re-compress server-side if still >2 MB
 PHONE_RE = re.compile(r"^\+?[\d\s\-]{7,15}$")
 
 
@@ -38,21 +39,64 @@ class VisitorError(Exception):
 # 1. Image validation & save
 # ---------------------------------------------------------------------------
 
+def _recompress_with_pillow(data: bytes) -> bytes:
+    """
+    Backend fallback: re-compress image bytes with Pillow at 75 % JPEG quality.
+    Returns the re-compressed bytes, or the original bytes if Pillow is unavailable.
+    """
+    try:
+        from PIL import Image  # pillow is an optional dependency
+        img    = Image.open(io.BytesIO(data)).convert("RGB")
+        buf    = io.BytesIO()
+        img.save(buf, format="JPEG", quality=75, optimize=True)
+        buf.seek(0)
+        recompressed = buf.read()
+        logger.info(
+            "_recompress_with_pillow: %d KB → %d KB",
+            len(data) // 1024, len(recompressed) // 1024,
+        )
+        return recompressed
+    except ImportError:
+        logger.warning("Pillow not installed — skipping server-side recompression.")
+        return data
+    except Exception as exc:
+        logger.warning("Server-side recompression failed (%s) — using original.", exc)
+        return data
+
+
 def _save_image(image: UploadFile) -> str:
     """
-    Validate and persist the uploaded visitor image.
+    Validate, optionally recompress, and persist the uploaded visitor image.
     Returns the relative URL path (used for <img src="…">).
     Raises VisitorError on validation failure.
     """
+    # Ensure upload directory exists (ephemeral filesystems recreate it on restart)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
     if image.content_type not in ALLOWED_CONTENT_TYPES:
         raise VisitorError("Only JPG and PNG images are accepted.")
 
-    # Read into memory to check size
+    # Read into memory to check raw size
     data = image.file.read()
     if len(data) > MAX_IMAGE_BYTES:
-        raise VisitorError("Image must be smaller than 2 MB.")
+        raise VisitorError(
+            f"Image is too large ({len(data) // (1024*1024):.1f} MB). "
+            "Maximum allowed size is 5 MB."
+        )
 
-    ext = "jpg" if "jpeg" in (image.content_type or "") else "png"
+    # Server-side safety recompression: if frontend compression was bypassed
+    # and the image is still above the recompress threshold, apply Pillow.
+    if len(data) > _RECOMPRESS_THRESHOLD:
+        logger.info(
+            "_save_image: image %d KB exceeds recompress threshold — applying server-side compression.",
+            len(data) // 1024,
+        )
+        data = _recompress_with_pillow(data)
+        # After recompression the content type is always JPEG
+        ext = "jpg"
+    else:
+        ext = "jpg" if (image.content_type or "").lower() in {"image/jpeg", "image/jpg"} else "png"
+
     filename = f"{uuid.uuid4().hex}.{ext}"
     dest = UPLOAD_DIR / filename
 
@@ -104,19 +148,27 @@ def register_visitor(
     db.commit()
     db.refresh(visitor)
 
-    # Notify all managers/admins — fire-and-forget
+    # ── Notify all managers + admins (high priority — needs action) ────────────────
     try:
         from app.models.user import User, UserRole
-        from app.services.notification_service import create_task_notification
+        from app.services.notification_service import create_notification
 
         managers = (
             db.query(User)
-            .filter(User.role.in_([UserRole.manager, UserRole.admin]), User.is_active == 1)
+            .filter(
+                User.role.in_([UserRole.manager, UserRole.admin]),
+                User.is_active == 1,
+            )
             .all()
         )
-        msg = f"New visitor registered: {name} — purpose: {purpose}"
+        msg = f"📍 New visitor: {name} — purpose: {purpose}"
         for mgr in managers:
-            create_task_notification(db, mgr.id, msg)
+            create_notification(
+                db, mgr.id, "visitor", msg,
+                entity_id=visitor.id,
+                actor_id=created_by,
+                priority="high",
+            )
     except Exception as exc:
         logger.warning("visitor register: notification failed: %s", exc)
 
@@ -175,13 +227,43 @@ def _review_visitor(
     db.commit()
     db.refresh(visitor)
 
-    # Notify the security guard who registered the visitor — fire-and-forget
+    # ── Notify the registering guard + all active guards (role-hierarchy aware) ───
     try:
-        from app.services.notification_service import create_task_notification
+        from app.models.user import User, UserRole
+        from app.services.notification_service import create_notification
 
-        verb = "approved" if new_status == "approved" else "rejected"
-        msg  = f"Visitor '{visitor.name}' has been {verb}."
-        create_task_notification(db, visitor.created_by, msg)
+        verb      = "approved ✅" if new_status == "approved" else "rejected ❌"
+        verb_past = "approved"     if new_status == "approved" else "rejected"
+
+        # 1. High-priority: notify the guard who registered this visitor
+        create_notification(
+            db, visitor.created_by, "visitor",
+            f"Visitor '{visitor.name}' was {verb} by the manager.",
+            entity_id=visitor.id,
+            actor_id=reviewer_id,
+            priority="high",
+        )
+
+        # 2. Normal-priority: notify ALL other active security guards
+        #    so they know the entry status at the gate.
+        if new_status == "approved":
+            other_guards = (
+                db.query(User)
+                .filter(
+                    User.role == UserRole.security_guard,
+                    User.is_active == 1,
+                    User.id != visitor.created_by,   # already notified above
+                )
+                .all()
+            )
+            for guard in other_guards:
+                create_notification(
+                    db, guard.id, "visitor",
+                    f"📍 Visitor '{visitor.name}' has been {verb_past} — allow entry.",
+                    entity_id=visitor.id,
+                    actor_id=reviewer_id,
+                    priority="normal",
+                )
     except Exception as exc:
         logger.warning("visitor review: notification failed: %s", exc)
 

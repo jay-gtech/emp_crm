@@ -335,6 +335,28 @@
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
+
+/* ── Mobile responsiveness ────────────────────────────────────────────── */
+.btn-chat-back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--gray-600);
+  padding: 4px;
+  margin-right: 4px;
+}
+.btn-chat-back:hover { color: var(--primary); }
+
+@media (max-width: 768px) {
+  .chat-sidebar { width: 100%; border-right: none; }
+  .chat-main { display: none; }
+  .chat-layout.active-chat .chat-sidebar { display: none; }
+  .chat-layout.active-chat .chat-main { display: flex; }
+  .btn-chat-back { display: flex; }
+}
 </style>
 
 <div class="chat-layout">
@@ -391,6 +413,9 @@
 
     <div class="chat-main-header" id="chatHeader">
       <div class="header-left">
+        <button class="btn-chat-back" id="btnChatBack" onclick="backToSidebar()" title="Back to list">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
         <span class="placeholder-text" id="headerPH">Select a colleague or group</span>
         <div id="headerActive" style="display:none;align-items:center;gap:8px;">
           <div class="chat-avatar" id="headerAv" style="width:28px;height:28px;font-size:12px;border-radius:50%;"></div>
@@ -412,7 +437,7 @@
 
     <div class="chat-input-bar" id="chatInputBar">
       <div class="chat-input-form" id="inputForm">
-        <label class="btn-attach" title="Attach file (groups only)" id="attachLabel" style="display:none">
+        <label class="btn-attach" title="Attach file" id="attachLabel" style="display:none">
           📎<input type="file" id="fileInput" style="display:none"
                    accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx">
         </label>
@@ -505,10 +530,12 @@
     activeGroupId = null;
     mode          = 'dm';
 
+    document.querySelector('.chat-layout').classList.add('active-chat');
+
     highlight(el);
     showHeader(name[0].toUpperCase(), name, false);
     inputBar.style.display = 'block';
-    attachLbl.style.display = 'none';
+    attachLbl.style.display = 'inline-block';
     hdrActions.style.display = 'none';
     document.getElementById('membersPanel').classList.remove('open');
 
@@ -524,6 +551,8 @@
     activeGroupId = groupId;
     activeUserId  = null;
     mode          = 'group';
+
+    document.querySelector('.chat-layout').classList.add('active-chat');
 
     highlight(el);
     showHeader('👥', name, true);
@@ -639,15 +668,24 @@
   window.sendMsg = async function () {
     const input   = document.getElementById('chatInput');
     const content = input.value.trim();
+    const file    = fileInput.files[0];
 
     if (mode === 'dm') {
-      if (!activeUserId || !content) return;
+      if (!activeUserId || (!content && !file)) return;
+      
+      const fd = new FormData();
+      fd.append('receiver_id', activeUserId);
+      fd.append('content', content);
+      if (file) fd.append('file', file);
+
       input.value = '';
-      const body = new URLSearchParams();
-      body.append('receiver_id', activeUserId);
-      body.append('content', content);
+      fileInput.value = '';
+      fileTag.style.display = 'none';
+      fileTag.textContent = '';
+
       try {
-        await fetch('/chat/send', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+        const r = await fetch('/chat/send', { method:'POST', body: fd });
+        if (!r.ok) { const d = await r.json().catch(()=>{}); window.showToast && showToast(d?.detail || 'Send failed','danger'); }
         await loadDm();
         scrollBot();
       } catch(_) {}
@@ -656,7 +694,6 @@
 
     // Group mode — send via REST (which also broadcasts over WS)
     if (!activeGroupId) return;
-    const file = fileInput.files[0];
     if (!content && !file) return;
 
     const fd = new FormData();
@@ -760,10 +797,15 @@
     wsBadge.style.display   = 'none';
   }
 
+  window.backToSidebar = function () {
+    document.querySelector('.chat-layout').classList.remove('active-chat');
+  };
+
   function resetChat() {
     stopAll();
     activeUserId  = null;
     activeGroupId = null;
+    document.querySelector('.chat-layout').classList.remove('active-chat');
     headerPH.style.display  = '';
     headerAct.style.display = 'none';
     inputBar.style.display  = 'none';

@@ -12,19 +12,24 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth import login_required
-from app.models.task import Task
+from app.models.task import Task, TaskAssignment
 from app.models.task_comment import TaskComment
 from app.models.user import User
 
 router = APIRouter(tags=["task_comments"])
 
 
-def _can_access(task: Task, uid: int, role: str) -> bool:
+def _can_access(db: Session, task: Task, uid: int, role: str) -> bool:
     """Return True if user is a participant (assignee/assigner) or manager/admin."""
-    return (
-        uid in (task.assigned_to, task.assigned_by)
-        or role in ("admin", "manager", "team_lead")
-    )
+    if role in ("admin", "manager", "team_lead"):
+        return True
+    if uid == task.assigned_by:
+        return True
+    # Allow employees who have a TaskAssignment on this task
+    return db.query(TaskAssignment).filter(
+        TaskAssignment.task_id == task.id,
+        TaskAssignment.user_id == uid,
+    ).first() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +50,7 @@ def add_comment(
     uid  = current_user["user_id"]
     role = current_user["role"]
 
-    if not _can_access(task, uid, role):
+    if not _can_access(db, task, uid, role):
         raise HTTPException(status_code=403, detail="Not authorised to comment on this task")
 
     comment_text = comment.strip()
@@ -57,6 +62,25 @@ def add_comment(
     tc = TaskComment(task_id=task_id, user_id=uid, comment=comment_text)
     db.add(tc)
     db.commit()
+
+    # Notify all task participants — fire-and-forget, no self-notification
+    try:
+        from app.services.notification_service import create_task_notification as _cmt_notify
+        commenter = db.query(User).filter(User.id == uid).first()
+        commenter_name = commenter.name if commenter else "Someone"
+        msg = f'💬 {commenter_name} commented on task "{task.title}": {comment_text[:80]}'
+
+        notify_ids: set[int] = set()
+        if task.assigned_by and task.assigned_by != uid:
+            notify_ids.add(task.assigned_by)
+        for a in db.query(TaskAssignment).filter(TaskAssignment.task_id == task.id).all():
+            if a.user_id != uid:
+                notify_ids.add(a.user_id)
+
+        for nid in notify_ids:
+            _cmt_notify(db, nid, msg)
+    except Exception:
+        pass
 
     # Redirect back to tasks page
     return RedirectResponse("/tasks/", status_code=302)
@@ -79,7 +103,7 @@ def get_comments(
     uid  = current_user["user_id"]
     role = current_user["role"]
 
-    if not _can_access(task, uid, role):
+    if not _can_access(db, task, uid, role):
         raise HTTPException(status_code=403, detail="Not authorised to view comments on this task")
 
     comments = (

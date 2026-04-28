@@ -437,8 +437,12 @@
      10. TOOLTIP ENHANCEMENT
      ═══════════════════════════════════════════════════════════════════════ */
   function initTooltips() {
+    // Skip interactive elements — the absolutely-positioned ::after pseudo-element
+    // inside .ux-tooltip-trigger renders ON TOP of button/link text, breaking the UI.
+    const SKIP_TAGS = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL']);
     $$('[title]').forEach(el => {
       if (el.dataset.tooltipInit) return;
+      if (SKIP_TAGS.has(el.tagName)) return;   // ← guard: never tooltip interactive elements
       el.dataset.tooltipInit = '1';
       const title = el.getAttribute('title');
       if (!title) return;

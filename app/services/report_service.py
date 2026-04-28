@@ -107,18 +107,12 @@ def get_team_reports(
     date_filter: str | None = None,
 ) -> list[Report]:
     """
-    Return reports from all employees whose team_lead_id == *team_lead_id*.
-    No N+1: fetches all matching user IDs in a single subquery.
+    Return reports from all subordinates (recursive) of *team_lead_id*.
     """
     try:
-        from app.models.user import User
+        from app.services.hierarchy_service import get_subordinate_ids
 
-        member_ids = [
-            uid
-            for (uid,) in db.query(User.id)
-            .filter(User.team_lead_id == team_lead_id, User.is_active == 1)
-            .all()
-        ]
+        member_ids = get_subordinate_ids(db, team_lead_id)
         if not member_ids:
             return []
 
@@ -136,14 +130,25 @@ def get_all_reports(
     db: Session,
     limit: int = 200,
     date_filter: str | None = None,
+    request_user: dict | None = None,
 ) -> list[Report]:
-    """Return all reports across all users (Manager / Admin view)."""
+    """
+    Return all reports. If request_user is provided, filters by hierarchy
+    unless they are an admin.
+    """
     try:
         q = db.query(Report)
         since = _since_dt(date_filter)
         if since:
             q = q.filter(Report.created_at >= since)
-        return q.order_by(Report.created_at.desc()).limit(limit).all()
+        
+        reports = q.order_by(Report.created_at.desc()).limit(limit).all()
+
+        if request_user:
+            from app.services.hierarchy_service import apply_hierarchy_filter
+            reports = apply_hierarchy_filter(db, request_user, reports)
+
+        return reports
     except Exception as exc:
         logger.error("get_all_reports failed: %s", exc)
         return []
@@ -224,15 +229,23 @@ def get_eod_reports(db: Session, team_lead_id: int, limit: int = 30) -> list[EOD
         return []
 
 
-def get_all_eod_reports(db: Session, limit: int = 100) -> list[EODReport]:
-    """Return all EOD reports across all team leads (Manager / Admin)."""
+def get_all_eod_reports(
+    db: Session,
+    limit: int = 100,
+    request_user: dict | None = None,
+) -> list[EODReport]:
+    """Return all EOD reports. Filters by hierarchy if request_user is provided."""
     try:
-        return (
+        reports = (
             db.query(EODReport)
             .order_by(EODReport.report_date.desc())
             .limit(limit)
             .all()
         )
+        if request_user:
+            from app.services.hierarchy_service import apply_hierarchy_filter
+            reports = apply_hierarchy_filter(db, request_user, reports)
+        return reports
     except Exception as exc:
         logger.error("get_all_eod_reports failed: %s", exc)
         return []

@@ -290,11 +290,14 @@
 (function () {
   'use strict';
 
-  /* ── Chart.js global defaults ────────────────────────────────────── */
-  Chart.defaults.font.family = "'Inter', 'Segoe UI', sans-serif";
-  Chart.defaults.font.size   = 11;
-  Chart.defaults.color       = '#6b7280';
-  Chart.defaults.plugins.legend.display = false;
+  /* ── Chart.js global defaults (set after DOM ready to guarantee Chart is defined) ── */
+  function applyChartDefaults() {
+    if (typeof Chart === 'undefined') return;
+    Chart.defaults.font.family = "'Inter', 'Segoe UI', sans-serif";
+    Chart.defaults.font.size   = 11;
+    Chart.defaults.color       = '#6b7280';
+    Chart.defaults.plugins.legend.display = false;
+  }
 
   const COLORS = {
     blue:   '#2563eb',
@@ -434,21 +437,61 @@
   function renderDonut(kpis, perf) {
     const ctx = document.getElementById('chartDonut');
     if (!ctx) return;
-    if (chartDo) chartDo.destroy();
+    if (chartDo) { chartDo.destroy(); chartDo = null; }
 
     const completed  = perf.tasks_completed  || 0;
     const inprogress = (perf.tasks_total || 0) - (perf.tasks_completed || 0) - (perf.tasks_overdue || 0);
     const overdue    = perf.tasks_overdue    || 0;
 
-    const data   = [completed, Math.max(inprogress, 0), overdue];
-    const labels = ['Completed', 'In Progress', 'Overdue'];
-    const colors = [COLORS.green, COLORS.blue, COLORS.rose];
+    const rawData = [completed, Math.max(inprogress, 0), overdue];
+    const labels  = ['Completed', 'In Progress', 'Overdue'];
+    const colors  = [COLORS.green, COLORS.blue, COLORS.rose];
+
+    const allZero = rawData.every(v => v === 0);
+    const chartWrap = ctx.closest('.chart-wrap');
+
+    /* ── Remove any previous empty-state overlay ── */
+    const prevEmpty = chartWrap?.querySelector('.donut-empty-state');
+    if (prevEmpty) prevEmpty.remove();
+
+    if (allZero) {
+      /* Hide the canvas and show a clear "No data" message instead of
+         a misleading grey ring. */
+      ctx.style.display = 'none';
+
+      const emptyEl = document.createElement('div');
+      emptyEl.className = 'donut-empty-state';
+      emptyEl.style.cssText =
+        'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+        'height:100%;width:100%;text-align:center;gap:8px;';
+      emptyEl.innerHTML =
+        '<span style="font-size:36px;opacity:.5;">📊</span>' +
+        '<span style="font-size:13px;font-weight:600;color:var(--gray-500);">No task data yet</span>' +
+        '<span style="font-size:11px;color:var(--gray-400);">Completion metrics will appear here once tasks are tracked.</span>';
+      chartWrap.appendChild(emptyEl);
+
+      /* Legend: show categories with 0 values so the layout stays stable */
+      const leg = document.getElementById('donutLegend');
+      if (leg) {
+        leg.innerHTML = labels.map((l, i) => `
+          <div class="legend-row" style="opacity:.5;">
+            <span class="legend-dot" style="background:${colors[i]}"></span>
+            <span>${l}</span>
+            <strong style="margin-left:auto;color:#9ca3af">0</strong>
+          </div>
+        `).join('');
+      }
+      return;
+    }
+
+    /* ── Normal render when data exists ── */
+    ctx.style.display = '';
 
     chartDo = new Chart(ctx, {
       type: 'doughnut',
       data: {
         labels,
-        datasets: [{ data, backgroundColor: colors, borderWidth: 2, hoverOffset: 6 }],
+        datasets: [{ data: rawData, backgroundColor: colors, borderWidth: 2, hoverOffset: 6 }],
       },
       options: {
         responsive: true,
@@ -461,14 +504,14 @@
       },
     });
 
-    /* custom legend */
+    /* Custom legend with real values */
     const leg = document.getElementById('donutLegend');
     if (leg) {
       leg.innerHTML = labels.map((l, i) => `
         <div class="legend-row">
           <span class="legend-dot" style="background:${colors[i]}"></span>
           <span>${l}</span>
-          <strong style="margin-left:auto;color:#374151">${data[i]}</strong>
+          <strong style="margin-left:auto;color:#374151">${rawData[i]}</strong>
         </div>
       `).join('');
     }
@@ -612,9 +655,19 @@
   }
 
   /* ── Boot ────────────────────────────────────────────────────────── */
-  loadAnalytics();
-  // Auto-refresh every 5 minutes
-  setInterval(loadAnalytics, 5 * 60 * 1000);
+  /* Wrap in DOMContentLoaded to guarantee all <canvas> elements exist   */
+  /* before Chart.js tries to acquire their 2D context.                  */
+  function boot() {
+    applyChartDefaults();
+    loadAnalytics();
+    setInterval(loadAnalytics, 5 * 60 * 1000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot(); // DOM already ready (script parsed after DOMContentLoaded fired)
+  }
 })();
 </script>
 {% endblock %}

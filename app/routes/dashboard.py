@@ -65,12 +65,17 @@ def dashboard(
         tasks = list_all_tasks(db)
         pending_leaves = list_pending_leaves(db)
     elif role in ("manager", "team_lead"):
-        tasks = list_tasks_assigned_by(db, uid)
-        all_pending = list_pending_leaves(db)
-        if is_user_in_scope:
-            pending_leaves = [l for l in all_pending if is_user_in_scope(db, current_user, l.employee_id)]
-        else:
-            pending_leaves = all_pending
+        from app.services.hierarchy_service import get_subordinate_ids
+        from app.services.task_service import list_visible_tasks as _lv_tasks
+        from app.models.leave import Leave, LeaveStatus
+        subordinate_ids = get_subordinate_ids(db, uid)
+        # list_visible_tasks returns SimpleNamespace rows (one per assignment)
+        # covering both new TaskAssignment-based tasks and legacy Task rows.
+        tasks = _lv_tasks(db, uid, subordinate_ids)
+        pending_leaves = db.query(Leave).filter(
+            Leave.employee_id.in_(subordinate_ids),
+            Leave.status == LeaveStatus.pending
+        ).all() if subordinate_ids else []
     else:
         tasks = list_tasks_for_employee(db, uid)
         pending_leaves = []

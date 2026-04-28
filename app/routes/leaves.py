@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -16,12 +16,19 @@ except ImportError:
     is_user_in_scope = None
 
 # Audit trigger — imported defensively
-
 try:
     from app.services.audit_service import log_action as _audit
     _AUDIT_OK = True
 except Exception:
     _AUDIT_OK = False
+
+# Notification helper — imported defensively
+try:
+    from app.services.notification_service import create_notification as _notif
+    _NOTIF_OK = True
+except Exception:
+    _NOTIF_OK = False
+    def _notif(*a, **kw): pass  # noqa
 
 
 router = APIRouter(prefix="/leaves", tags=["leaves"])
@@ -40,11 +47,13 @@ def leaves_page(
     if role == "admin":
         leaves = list_all_leaves(db)
     elif role in ("manager", "team_lead"):
-        all_pending = list_pending_leaves(db)
-        if is_user_in_scope:
-            leaves = [l for l in all_pending if is_user_in_scope(db, current_user, l.employee_id)]
-        else:
-            leaves = all_pending
+        from app.services.hierarchy_service import get_subordinate_ids
+        from app.models.leave import Leave as LeaveModel, LeaveStatus
+        subordinate_ids = get_subordinate_ids(db, uid)
+        leaves = db.query(LeaveModel).filter(
+            LeaveModel.employee_id.in_(subordinate_ids),
+            LeaveModel.status == LeaveStatus.pending
+        ).order_by(LeaveModel.created_at.asc()).all()
     else:
         leaves = list_leaves_for_employee(db, uid)
 
@@ -77,6 +86,11 @@ def apply_leave_post(
     try:
         sd = date.fromisoformat(start_date)
         ed = date.fromisoformat(end_date)
+
+        # Past-date guard — reject leaves that start before today
+        if sd < date.today():
+            raise LeaveError("Leave start date cannot be in the past.")
+
         leave = apply_leave(db, current_user["user_id"], leave_type, sd, ed, reason or None)
         
         if _AUDIT_OK:
@@ -85,6 +99,25 @@ def apply_leave_post(
                        f"Applied for {leave.total_days} days")
             except Exception:
                 pass
+
+        # ── Notify manager that a leave request is pending ───────────────────────
+        try:
+            from app.models.user import User as _User
+            employee = db.query(_User).filter(
+                _User.id == current_user["user_id"]
+            ).first()
+            if employee:
+                manager_id = employee.team_lead_id or employee.manager_id
+                if manager_id and manager_id != current_user["user_id"]:
+                    _notif(
+                        db, manager_id, "leave",
+                        f"📅 {employee.name} applied for {leave.total_days} day(s) of "
+                        f"{leave.leave_type.value} leave.",
+                        entity_id=leave.id,
+                        actor_id=current_user["user_id"],
+                    )
+        except Exception:
+            pass
                 
         return RedirectResponse("/leaves/", status_code=302)
     except (LeaveError, ValueError) as e:
@@ -113,11 +146,17 @@ def review_leave_post(
     current_user: dict = Depends(role_required("admin", "manager", "team_lead")),
 ):
     # Scope check: non-admin reviewers can only act on leaves within their hierarchy
-    if current_user["role"] != "admin" and is_user_in_scope:
+    if current_user["role"] != "admin":
         from app.models.leave import Leave as LeaveModel
+        from app.services.hierarchy_service import get_subordinate_ids
         leave_record = db.query(LeaveModel).filter(LeaveModel.id == leave_id).first()
-        if leave_record and not is_user_in_scope(db, current_user, leave_record.employee_id):
-            raise HTTPException(status_code=403, detail="This leave request is outside your scope")
+        if leave_record:
+            if leave_record.employee_id == current_user["user_id"]:
+                raise HTTPException(status_code=403, detail="You cannot review your own leave request")
+
+            subordinate_ids = get_subordinate_ids(db, current_user["user_id"])
+            if leave_record.employee_id not in subordinate_ids:
+                raise HTTPException(status_code=403, detail="This leave request is outside your scope")
     try:
         updated = review_leave(db, leave_id, current_user["user_id"], action, note or None)
 
@@ -128,6 +167,19 @@ def review_leave_post(
                        note or None)
             except Exception:
                 pass
+
+        # ── Notify the employee of the review decision ──────────────────────────
+        try:
+            verb = "✅ approved" if action == "approved" else "❌ rejected"
+            _notif(
+                db, updated.employee_id, "leave",
+                f"Your leave request was {verb} by "
+                f"{current_user.get('name', 'your manager')}.",
+                entity_id=leave_id,
+                actor_id=current_user["user_id"],
+            )
+        except Exception:
+            pass
     except LeaveError:
         pass
     return RedirectResponse("/leaves/", status_code=302)

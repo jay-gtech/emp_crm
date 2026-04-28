@@ -30,6 +30,12 @@ templates = Jinja2Templates(directory="app/templates")
 
 _CREATOR_ROLES = ("admin", "manager", "team_lead")
 
+# Notification helper — imported defensively
+try:
+    from app.services.notification_service import create_notification as _notif
+except Exception:
+    def _notif(*a, **kw): pass  # noqa
+
 
 def _require_creator_role(current_user: dict) -> None:
     if current_user.get("role") not in _CREATOR_ROLES:
@@ -77,6 +83,9 @@ def expense_home(
 # POST /expense/create — create group (admin/manager/team_lead)
 # ---------------------------------------------------------------------------
 
+_MAX_AMOUNT = 1_000_000.00
+
+
 @router.post("/create")
 def create_group(
     title: str = Form(...),
@@ -85,6 +94,19 @@ def create_group(
     current_user: dict = Depends(login_required),
 ):
     _require_creator_role(current_user)
+
+    # ── Backend validation (defence-in-depth, mirrors frontend + service) ──
+    if total_amount <= 0:
+        return RedirectResponse(
+            f"/expense/?error={quote('Amount must be greater than zero.')}",
+            status_code=303,
+        )
+    if total_amount > _MAX_AMOUNT:
+        return RedirectResponse(
+            f"/expense/?error={quote(f'Amount cannot exceed ₹{_MAX_AMOUNT:,.2f}. Enter a realistic value.')}",
+            status_code=303,
+        )
+
     try:
         group = create_expense_group(
             db=db,
@@ -155,6 +177,20 @@ def add_group_members(
         if not ids:
             raise ExpenseError("No user IDs provided.")
         add_members(db, group_id, ids, current_user["user_id"])
+
+        # ── Notify each new member ────────────────────────────────────────────
+        try:
+            detail = get_group_detail(db, group_id, current_user["user_id"])
+            group_title = detail["title"] if detail else f"Group #{group_id}"
+            for uid in ids:
+                _notif(
+                    db, uid, "expense",
+                    f"💰 You have been added to expense group: {group_title}",
+                    entity_id=group_id,
+                    actor_id=current_user["user_id"],
+                )
+        except Exception:
+            pass
     except (ExpenseError, ValueError) as exc:
         return RedirectResponse(
             f"/expense/{group_id}?error={quote(str(exc))}", status_code=303

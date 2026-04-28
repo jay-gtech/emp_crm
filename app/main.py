@@ -216,6 +216,15 @@ app.include_router(tasks.router)
 app.include_router(leaves.router)
 app.include_router(dashboard.router)
 app.include_router(notifications.router)
+
+# Real-time WebSocket notifications
+try:
+    from app.routes import ws_notifications as _ws_notif
+    app.include_router(_ws_notif.router)
+    _log.info("[startup] WebSocket notification router registered.")
+except Exception as _ws_exc:
+    _log.warning("[startup] ws_notifications router skipped: %s", _ws_exc)
+
 app.include_router(api.router)
 app.include_router(auto_assign.router)
 app.include_router(admin_router.router)

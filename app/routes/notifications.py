@@ -17,6 +17,7 @@ try:
     from app.services.notification_service import (
         get_notifications,
         get_unread_count,
+        get_unread_by_module,
         mark_as_read,
     )
     _SVC_OK = True
@@ -48,7 +49,7 @@ def list_notifications(
 
 
 # ---------------------------------------------------------------------------
-# GET /notifications/unread  — lightweight count poll
+# GET /notifications/unread  — lightweight count poll (bell + sidebar badges)
 # ---------------------------------------------------------------------------
 @router.get("/unread")
 def unread_count(
@@ -57,12 +58,22 @@ def unread_count(
     current_user: dict = Depends(login_required),
 ):
     if not _SVC_OK:
-        return JSONResponse({"unread_count": 0})
+        return JSONResponse({
+            "unread_count": 0, "total": 0,
+            "task": 0, "leave": 0, "meeting": 0,
+            "chat": 0, "announcement": 0, "expense": 0, "visitor": 0,
+        })
     try:
-        count = get_unread_count(db, current_user["user_id"])
-        return JSONResponse({"unread_count": count})
+        data = get_unread_by_module(db, current_user["user_id"])
+        # Keep "unread_count" for the existing bell-badge JS in base.html
+        data["unread_count"] = data["total"]
+        return JSONResponse(data)
     except Exception:
-        return JSONResponse({"unread_count": 0})
+        return JSONResponse({
+            "unread_count": 0, "total": 0,
+            "task": 0, "leave": 0, "meeting": 0,
+            "chat": 0, "announcement": 0, "expense": 0, "visitor": 0,
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -100,3 +111,37 @@ def mark_one_read(
         return JSONResponse({"ok": True})
     except Exception:
         return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# POST /notifications/read-module/{module}  — auto mark-as-read on page visit
+# ---------------------------------------------------------------------------
+@router.post("/read-module/{module}")
+def mark_module_read(
+    module: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(login_required),
+):
+    """
+    Mark all unread notifications for a given module as read.
+    Called automatically via JS when the user navigates to a module page.
+    """
+    if not _SVC_OK:
+        return JSONResponse({"ok": True})
+    try:
+        from app.models.notification import Notification
+        db.query(Notification).filter(
+            Notification.user_id == current_user["user_id"],
+            Notification.module  == module,
+            Notification.is_read == False,  # noqa: E712
+        ).update({"is_read": True})
+        db.commit()
+        return JSONResponse({"ok": True})
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": True})
+

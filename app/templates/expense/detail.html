@@ -24,6 +24,8 @@
 .exp-summary .meta { font-size: 12px; color: var(--gray-500); margin-bottom: 16px; }
 .exp-amount-big {
   font-size: 36px; font-weight: 900; color: #f59e0b; margin-bottom: 4px;
+  /* ── overflow guard: prevents large numbers from breaking card layout ── */
+  overflow-wrap: break-word; word-break: break-word; max-width: 100%;
 }
 .exp-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .exp-chip {
@@ -131,7 +133,7 @@
     Created by {{ group.creator_name }}
     · {{ group.created_at.strftime('%d %b %Y, %H:%M') if group.created_at else '—' }}
   </div>
-  <div class="exp-amount-big">₹{{ "%.2f"|format(group.total_amount) }}</div>
+  <div class="exp-amount-big">₹{{ "{:,.2f}".format(group.total_amount) }}</div>
   <div style="font-size:13px;color:var(--gray-500);">Total expense</div>
   <div class="exp-chips">
     <div class="exp-chip paid">
@@ -183,7 +185,7 @@
       {% for m in group.members %}
       <tr>
         <td style="font-weight:600;color:var(--gray-800)">{{ m.user_name }}</td>
-        <td>₹{{ "%.2f"|format(m.amount_share) }}</td>
+        <td>₹{{ "{:,.2f}".format(m.amount_share) }}</td>
         <td>
           {% if m.status == 'paid' %}
           <span class="status-pill pill-paid">✅ Paid</span>
@@ -197,7 +199,7 @@
           <form method="post" action="/expense/{{ group.id }}/pay" style="margin:0">
             <input type="hidden" name="target_user_id" value="{{ m.user_id }}" />
             <button type="submit" class="btn-pay"
-                    onclick="return confirm('Mark ₹{{ '%.2f'|format(m.amount_share) }} as paid?')">
+                    onclick="return confirm('Mark ₹{{ '{:,.2f}'.format(m.amount_share) }} as paid?')">
               Pay Now
             </button>
           </form>

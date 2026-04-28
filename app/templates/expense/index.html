@@ -67,6 +67,9 @@
 }
 .exp-card-amount {
   font-size: 24px; font-weight: 800; color: #f59e0b; margin-bottom: 4px;
+  /* ── overflow guard: very long numbers must wrap, not break layout ── */
+  overflow-wrap: break-word; word-break: break-word;
+  max-width: 100%;
 }
 .exp-card-meta { font-size: 12px; color: var(--gray-500); margin-bottom: 12px; }
 .exp-card-share {
@@ -99,6 +102,13 @@
   margin-bottom: 18px; flex-wrap: wrap; gap: 8px;
 }
 .exp-header h2 { font-size: 16px; font-weight: 700; color: var(--gray-800); margin: 0; }
+
+/* ── Amount validation error ─────────────────────────────── */
+.exp-amount-err {
+  display: none; color: #dc2626; font-size: 12px; font-weight: 600;
+  margin-top: 4px; padding: 4px 8px;
+  background: #fee2e2; border-radius: 4px; border-left: 3px solid #dc2626;
+}
 </style>
 {% endblock %}
 
@@ -129,9 +139,12 @@
     <div class="exp-field">
       <label for="exp-amount">Total Amount (₹) *</label>
       <input type="number" id="exp-amount" name="total_amount"
-             step="0.01" min="0.01" placeholder="e.g. 1200.00" required />
+             step="0.01" min="1" max="1000000"
+             placeholder="e.g. 1200.00" required
+             oninput="validateExpAmount(this)" />
+      <div class="exp-amount-err" id="exp-amount-err"></div>
     </div>
-    <button type="submit" class="exp-submit">Create Group</button>
+    <button type="submit" class="exp-submit" id="exp-submit-btn">Create Group</button>
   </form>
 </div>
 {% endif %}
@@ -149,13 +162,13 @@
       {{ g.title }}
       {% if g.is_creator %}<span class="badge-creator">Creator</span>{% endif %}
     </div>
-    <div class="exp-card-amount">₹{{ "%.2f"|format(g.total_amount) }}</div>
+    <div class="exp-card-amount">₹{{ "{:,.2f}".format(g.total_amount) }}</div>
     <div class="exp-card-meta">
       {{ g.created_at.strftime('%d %b %Y') if g.created_at else '—' }}
     </div>
     <div class="exp-card-share">
       <span class="label">Your share</span>
-      <span class="val">₹{{ "%.2f"|format(g.my_share) }}</span>
+      <span class="val">₹{{ "{:,.2f}".format(g.my_share) }}</span>
       <span class="status-{{ g.my_status }}">
         {% if g.my_status == 'paid' %}✅ Paid{% else %}⏳ Pending{% endif %}
       </span>
@@ -172,4 +185,29 @@
 {% endif %}
 
 </div>
+
+<script>
+/* ── Frontend amount validation ──────────────────────────────────── */
+function validateExpAmount(input) {
+  const MAX   = 1_000_000;
+  const err   = document.getElementById('exp-amount-err');
+  const btn   = document.getElementById('exp-submit-btn');
+  const val   = parseFloat(input.value);
+
+  let msg = '';
+  if (input.value === '') {
+    msg = '';                               // empty — let HTML5 "required" handle it
+  } else if (isNaN(val) || val <= 0) {
+    msg = '⚠️ Amount must be greater than ₹0.';
+  } else if (val > MAX) {
+    msg = `⚠️ Amount cannot exceed ₹${MAX.toLocaleString('en-IN')}. Enter a realistic value.`;
+  }
+
+  err.textContent = msg;
+  err.style.display = msg ? 'block' : 'none';
+  btn.disabled = !!msg;
+  btn.style.opacity = msg ? '0.5' : '';
+  btn.style.cursor  = msg ? 'not-allowed' : '';
+}
+</script>
 {% endblock %}

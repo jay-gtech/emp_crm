@@ -230,16 +230,22 @@ def get_employee_performance(db: Session, user_id: int) -> dict:
     try:
         Attendance, Task, TaskStatus, Leave, LeaveStatus, *_ = _models()
 
-        # Tasks
-        tasks = db.query(Task).filter(Task.assigned_to == user_id).all()
-        total = len(tasks)
-        completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
+        # Tasks — query via task_assignments (single source of truth)
+        from app.models.task import TaskAssignment as _TA
+        _assignments = db.query(_TA).filter(_TA.user_id == user_id).all()
+        total = len(_assignments)
+        completed = sum(1 for a in _assignments if a.status.value == "completed")
         today = date.today()
-        overdue = sum(
-            1 for t in tasks
-            if t.status != TaskStatus.completed
-            and t.due_date
-            and t.due_date < today
+        # For overdue we still need the task's due_date — join to Task
+        overdue = (
+            db.query(_TA)
+            .join(Task, _TA.task_id == Task.id)
+            .filter(
+                _TA.user_id == user_id,
+                _TA.status != "completed",
+                Task.due_date < today,
+            )
+            .count()
         )
         rate = round((completed / total) * 100, 1) if total else 0.0
 
@@ -322,9 +328,10 @@ def get_team_comparison(db: Session) -> list[dict]:
         result = []
         for u in users:
             try:
-                tasks = db.query(Task).filter(Task.assigned_to == u.id).all()
-                total = len(tasks)
-                completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
+                from app.models.task import TaskAssignment as _TA
+                _assignments = db.query(_TA).filter(_TA.user_id == u.id).all()
+                total = len(_assignments)
+                completed = sum(1 for a in _assignments if a.status.value == "completed")
                 rate = round((completed / total) * 100, 1) if total else 0.0
 
                 att_days = (
@@ -613,12 +620,15 @@ def get_workload_distribution(db) -> dict:
         names, active, completed, overdue = [], [], [], []
 
         for u in users:
-            tasks = db.query(Task).filter(Task.assigned_to == u.id).all()
-            n_completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
-            n_active    = sum(1 for t in tasks if t.status != TaskStatus.completed)
-            n_overdue   = sum(
-                1 for t in tasks
-                if t.status != TaskStatus.completed and t.due_date and t.due_date < today
+            from app.models.task import TaskAssignment as _TA
+            _assignments = db.query(_TA).filter(_TA.user_id == u.id).all()
+            n_completed = sum(1 for a in _assignments if a.status.value == "completed")
+            n_active    = sum(1 for a in _assignments if a.status.value != "completed")
+            n_overdue   = (
+                db.query(_TA)
+                .join(Task, _TA.task_id == Task.id)
+                .filter(_TA.user_id == u.id, _TA.status != "completed", Task.due_date < today)
+                .count()
             )
             names.append(u.name)
             active.append(n_active)
@@ -863,32 +873,24 @@ def get_data_quality_check() -> dict:
 
 def get_user_task_stats(db: Session, user_id: int) -> dict:
     """
-    Personal task KPIs for *user_id*.
-
-    Shape:
-        {
-          "total_tasks": 12,
-          "completed_tasks": 8,
-          "pending_tasks": 1,
-          "in_progress_tasks": 2,
-          "delayed_tasks": 1,
-          "completion_rate": 66.7,
-          "avg_duration_minutes": 142.5,
-        }
+    Personal task KPIs for *user_id* — sourced entirely from task_assignments.
     """
     try:
-        _, Task, TaskStatus, *_ = _models()
+        from app.models.task import TaskAssignment, AssignmentStatus
 
-        tasks = db.query(Task).filter(Task.assigned_to == user_id).all()
-        total      = len(tasks)
-        completed  = [t for t in tasks if t.status == TaskStatus.completed]
-        in_prog    = [t for t in tasks if t.status == TaskStatus.in_progress]
-        pending_ap = [t for t in tasks if t.status == TaskStatus.pending_approval]
-        delayed    = [t for t in tasks if getattr(t, "is_delayed", False)]
+        assignments = db.query(TaskAssignment).filter(
+            TaskAssignment.user_id == user_id
+        ).all()
 
-        durations  = [
-            t.duration_seconds for t in completed
-            if t.duration_seconds is not None and t.duration_seconds > 0
+        total      = len(assignments)
+        completed  = [a for a in assignments if a.status == AssignmentStatus.completed]
+        in_prog    = [a for a in assignments if a.status == AssignmentStatus.in_progress]
+        pending_ap = [a for a in assignments if a.status == AssignmentStatus.pending_approval]
+        delayed    = [a for a in assignments if getattr(a, "is_delayed", False)]
+
+        durations = [
+            a.duration_seconds for a in completed
+            if a.duration_seconds and a.duration_seconds > 0
         ]
         avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
         rate        = round(len(completed) / total * 100, 1) if total else 0.0
@@ -917,33 +919,48 @@ def get_user_task_stats(db: Session, user_id: int) -> dict:
 
 def get_manager_team_stats(db: Session, manager_id: int) -> dict:
     """
-    Aggregated task KPIs for all users in a manager's team.
-    Includes both TL and employee tasks assigned by the manager.
-
-    Shape:
-        {
-          "team_total": 30,
-          "team_completed": 20,
-          "team_delayed": 3,
-          "team_pending_approval": 4,
-          "team_avg_duration_minutes": 110.0,
-          "team_completion_rate": 66.7,
-        }
+    Aggregated task KPIs for all assignments on tasks the manager created.
+    Uses TaskAssignment for new-style tasks; falls back to Task.status for legacy.
     """
     try:
-        _, Task, TaskStatus, *_ = _models()
-        from app.models.user import User
+        from app.models.task import TaskAssignment, AssignmentStatus, Task, TaskStatus
 
-        # Tasks assigned BY this manager
-        tasks = db.query(Task).filter(Task.assigned_by == manager_id).all()
-        total      = len(tasks)
-        completed  = [t for t in tasks if t.status == TaskStatus.completed]
-        delayed    = [t for t in tasks if getattr(t, "is_delayed", False)]
-        pend_ap    = [t for t in tasks if t.status == TaskStatus.pending_approval]
+        # New-style: count assignments on tasks assigned_by this manager
+        assignments = (
+            db.query(TaskAssignment)
+            .join(Task, TaskAssignment.task_id == Task.id)
+            .filter(Task.assigned_by == manager_id)
+            .all()
+        )
 
-        durations  = [
-            t.duration_seconds for t in completed
-            if t.duration_seconds is not None and t.duration_seconds > 0
+        # Legacy: tasks with no assignments
+        task_ids_with_assignments = {a.task_id for a in assignments}
+        legacy_tasks = (
+            db.query(Task)
+            .filter(
+                Task.assigned_by == manager_id,
+                Task.id.notin_(task_ids_with_assignments),
+            )
+            .all()
+        ) if task_ids_with_assignments else db.query(Task).filter(Task.assigned_by == manager_id).all()
+
+        total   = len(assignments) + len(legacy_tasks)
+        completed = (
+            [a for a in assignments if a.status == AssignmentStatus.completed]
+            + [t for t in legacy_tasks if t.status == TaskStatus.completed]
+        )
+        delayed = (
+            [a for a in assignments if getattr(a, "is_delayed", False)]
+            + [t for t in legacy_tasks if getattr(t, "is_delayed", False)]
+        )
+        pend_ap = (
+            [a for a in assignments if a.status == AssignmentStatus.pending_approval]
+            + [t for t in legacy_tasks if t.status == TaskStatus.pending_approval]
+        )
+
+        durations = [
+            x.duration_seconds for x in completed
+            if getattr(x, "duration_seconds", None) and x.duration_seconds > 0
         ]
         avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
         rate        = round(len(completed) / total * 100, 1) if total else 0.0
@@ -972,33 +989,45 @@ def get_manager_team_stats(db: Session, manager_id: int) -> dict:
 def get_system_task_stats(db: Session) -> dict:
     """
     Org-wide task health KPIs.
-
-    Shape:
-        {
-          "total": 100,
-          "completed": 60,
-          "in_progress": 15,
-          "pending_approval": 10,
-          "assigned": 15,
-          "delayed": 8,
-          "completion_rate": 60.0,
-          "avg_duration_minutes": 130.2,
-        }
+    Counts TaskAssignment rows for new tasks; legacy Task rows for old data.
     """
     try:
-        _, Task, TaskStatus, *_ = _models()
+        from app.models.task import TaskAssignment, AssignmentStatus, Task, TaskStatus
 
-        all_tasks  = db.query(Task).all()
-        total      = len(all_tasks)
-        completed  = [t for t in all_tasks if t.status == TaskStatus.completed]
-        in_prog    = [t for t in all_tasks if t.status == TaskStatus.in_progress]
-        pend_ap    = [t for t in all_tasks if t.status == TaskStatus.pending_approval]
-        assigned   = [t for t in all_tasks if t.status == TaskStatus.assigned]
-        delayed    = [t for t in all_tasks if getattr(t, "is_delayed", False)]
+        all_assignments = db.query(TaskAssignment).all()
+        assigned_task_ids = {a.task_id for a in all_assignments}
 
-        durations  = [
-            t.duration_seconds for t in completed
-            if t.duration_seconds is not None and t.duration_seconds > 0
+        legacy_tasks = (
+            db.query(Task)
+            .filter(Task.id.notin_(assigned_task_ids))
+            .all()
+        ) if assigned_task_ids else db.query(Task).all()
+
+        total     = len(all_assignments) + len(legacy_tasks)
+        completed = (
+            [a for a in all_assignments if a.status == AssignmentStatus.completed]
+            + [t for t in legacy_tasks if t.status == TaskStatus.completed]
+        )
+        in_prog   = (
+            [a for a in all_assignments if a.status == AssignmentStatus.in_progress]
+            + [t for t in legacy_tasks if t.status == TaskStatus.in_progress]
+        )
+        pend_ap   = (
+            [a for a in all_assignments if a.status == AssignmentStatus.pending_approval]
+            + [t for t in legacy_tasks if t.status == TaskStatus.pending_approval]
+        )
+        assigned  = (
+            [a for a in all_assignments if a.status == AssignmentStatus.assigned]
+            + [t for t in legacy_tasks if t.status == TaskStatus.assigned]
+        )
+        delayed   = (
+            [a for a in all_assignments if getattr(a, "is_delayed", False)]
+            + [t for t in legacy_tasks if getattr(t, "is_delayed", False)]
+        )
+
+        durations = [
+            x.duration_seconds for x in completed
+            if getattr(x, "duration_seconds", None) and x.duration_seconds > 0
         ]
         avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
         rate        = round(len(completed) / total * 100, 1) if total else 0.0
