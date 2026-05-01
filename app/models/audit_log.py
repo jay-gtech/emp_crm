@@ -5,14 +5,24 @@ from app.core.database import Base
 
 
 class AuditAction(str, enum.Enum):
-    task_created = "task_created"
-    task_deleted = "task_deleted"
-    leave_applied = "leave_applied"
-    leave_approved = "leave_approved"
-    leave_rejected = "leave_rejected"
-    employee_updated = "employee_updated"
+    # Task lifecycle
+    task_created   = "task_created"
+    task_started   = "task_started"
+    task_submitted = "task_submitted"
+    task_approved  = "task_approved"
+    task_rejected  = "task_rejected"
+    task_deleted   = "task_deleted"
+    # Leave lifecycle
+    leave_applied   = "leave_applied"
+    leave_approved  = "leave_approved"
+    leave_rejected  = "leave_rejected"
+    leave_forwarded = "leave_forwarded"
+    # Meeting
+    meeting_created = "meeting_created"
+    # Employee management
+    employee_updated     = "employee_updated"
     employee_deactivated = "employee_deactivated"
-    role_changed = "role_changed"
+    role_changed         = "role_changed"
 
 
 class AuditLog(Base):

@@ -29,13 +29,17 @@ def apply_leave(
 
     total_days = _count_days(start_date, end_date)
 
-    # Enforce annual leave quota (pending + approved count against the balance)
+    # Enforce annual leave quota (pending + pending_manager + approved all count)
     current_year = start_date.year
     existing = (
         db.query(Leave)
         .filter(
             Leave.employee_id == employee_id,
-            Leave.status.in_([LeaveStatus.pending, LeaveStatus.approved]),
+            Leave.status.in_([
+                LeaveStatus.pending,
+                LeaveStatus.pending_manager,
+                LeaveStatus.approved,
+            ]),
             Leave.start_date >= date(current_year, 1, 1),
             Leave.end_date <= date(current_year, 12, 31),
         )
@@ -50,12 +54,16 @@ def apply_leave(
             f"out of the annual quota of {quota}."
         )
 
-    # Check for overlapping pending/approved leaves
+    # Check for overlapping leaves in any active state
     overlap = (
         db.query(Leave)
         .filter(
             Leave.employee_id == employee_id,
-            Leave.status.in_([LeaveStatus.pending, LeaveStatus.approved]),
+            Leave.status.in_([
+                LeaveStatus.pending,
+                LeaveStatus.pending_manager,
+                LeaveStatus.approved,
+            ]),
             Leave.start_date <= end_date,
             Leave.end_date >= start_date,
         )
@@ -112,12 +120,23 @@ def review_leave(
     leave = db.query(Leave).filter(Leave.id == leave_id).first()
     if not leave:
         raise LeaveError("Leave request not found.")
-    if leave.status != LeaveStatus.pending:
-        raise LeaveError("Only pending leave requests can be reviewed.")
-    if action not in ("approved", "rejected"):
-        raise LeaveError("Action must be 'approved' or 'rejected'.")
 
-    leave.status = LeaveStatus(action)
+    if leave.status == LeaveStatus.pending:
+        if action not in ("approved", "rejected", "forward"):
+            raise LeaveError("Action must be 'approved', 'rejected', or 'forward'.")
+        if action == "forward":
+            leave.status = LeaveStatus.pending_manager
+        else:
+            leave.status = LeaveStatus(action)
+
+    elif leave.status == LeaveStatus.pending_manager:
+        if action not in ("approved", "rejected"):
+            raise LeaveError("Manager action must be 'approved' or 'rejected'.")
+        leave.status = LeaveStatus(action)
+
+    else:
+        raise LeaveError("Only pending or pending_manager leave requests can be reviewed.")
+
     leave.reviewed_by = reviewer_id
     leave.review_note = note
     db.commit()

@@ -307,17 +307,24 @@ def list_tasks_for_employee(db: Session, employee_id: int) -> list[SimpleNamespa
         db.query(TaskAssignment, Task)
         .join(Task, TaskAssignment.task_id == Task.id)
         .filter(TaskAssignment.user_id == employee_id)
-        .order_by(Task.due_date.asc().nullslast(), Task.created_at.desc())
+        .order_by(Task.created_at.desc())   # 108: newest tasks first
         .all()
     )
     return [_assignment_to_row(a, t) for a, t in rows]
 
 
-def _manager_rows(db: Session, manager_id: int) -> list[SimpleNamespace]:
+def _manager_rows(
+    db: Session,
+    manager_id: int,
+    subordinate_ids: list[int] = (),
+) -> list[SimpleNamespace]:
     """
     Assignment rows visible to a manager/team_lead:
-      1. All assignments on tasks the manager created (to track team progress).
-      2. The manager's own assignments on tasks created by someone else.
+      1. Assignments on tasks the manager created, restricted to their hierarchy
+         (manager + direct/transitive subordinates). No extra DB query — filtered
+         in-memory from the already-fetched result set.
+      2. The manager's own assignments on tasks created by someone else (always
+         included — these are tasks assigned TO the manager, not by them).
     Both queries use explicit JOINs — no joinedload, no tasks_1 alias.
     """
     created_rows = (
@@ -339,10 +346,16 @@ def _manager_rows(db: Session, manager_id: int) -> list[SimpleNamespace]:
         .all()
     )
 
+    # Only show assignments to people within this manager's hierarchy.
+    # Includes the manager themselves (self-assigned tasks are valid).
+    visible_set: set[int] = set(subordinate_ids) | {manager_id}
+
     seen: set[tuple[int, int]] = set()
     rows: list[SimpleNamespace] = []
 
     for a, t in created_rows:
+        if a.user_id not in visible_set:
+            continue  # assignee outside hierarchy — skip (prevents batch summary leak)
         k = (a.task_id, a.user_id)
         if k not in seen:
             seen.add(k)
@@ -362,7 +375,7 @@ def list_visible_tasks(
     user_id: int,
     _subordinate_ids: list[int] = (),
 ) -> list[SimpleNamespace]:
-    return _manager_rows(db, user_id)
+    return _manager_rows(db, user_id, subordinate_ids=_subordinate_ids)
 
 
 def list_all_assignment_rows(db: Session) -> list[SimpleNamespace]:

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -7,13 +7,8 @@ from app.core.database import get_db
 from app.core.auth import login_required, role_required
 from app.services.leave_service import (
     apply_leave, review_leave, list_leaves_for_employee,
-    list_pending_leaves, list_all_leaves, get_leave_balance, LeaveError,
+    list_all_leaves, get_leave_balance, LeaveError,
 )
-
-try:
-    from app.services.hierarchy_service import is_user_in_scope
-except ImportError:
-    is_user_in_scope = None
 
 # Audit trigger — imported defensively
 try:
@@ -45,27 +40,42 @@ def leaves_page(
     role = current_user["role"]
 
     if role == "admin":
-        leaves = list_all_leaves(db)
+        # Admin: single flat list, no split needed
+        leaves     = list_all_leaves(db)
+        my_leaves  = []
+        team_leaves = []
     elif role in ("manager", "team_lead"):
-        from app.services.hierarchy_service import get_subordinate_ids
-        from app.models.leave import Leave as LeaveModel, LeaveStatus
-        subordinate_ids = get_subordinate_ids(db, uid)
-        leaves = db.query(LeaveModel).filter(
-            LeaveModel.employee_id.in_(subordinate_ids),
-            LeaveModel.status == LeaveStatus.pending
-        ).order_by(LeaveModel.created_at.asc()).all()
+        from app.services.hierarchy_service import safe_get_subordinate_ids
+        from app.models.leave import Leave as LeaveModel
+        subordinate_ids = safe_get_subordinate_ids(db, uid)
+        # Own full history + full team history (all statuses).
+        # The template already gates action buttons on status — no need to
+        # filter here; managers need visibility of the complete team history.
+        my_leaves = list_leaves_for_employee(db, uid)
+        team_leaves = (
+            db.query(LeaveModel)
+            .filter(LeaveModel.employee_id.in_(subordinate_ids))
+            .order_by(LeaveModel.created_at.desc())
+            .all()
+        ) if subordinate_ids else []
+        leaves = []  # unused for non-admin path
     else:
-        leaves = list_leaves_for_employee(db, uid)
+        # Employee / security_guard: own data only
+        my_leaves   = list_leaves_for_employee(db, uid)
+        team_leaves = []
+        leaves      = []  # unused for non-admin path
 
     balance = get_leave_balance(db, uid)
     return templates.TemplateResponse(
         "leaves/index.html",
         {
-            "request": request,
+            "request":      request,
             "current_user": current_user,
-            "leaves": leaves,
-            "balance": balance,
-            "error": None,
+            "leaves":       leaves,
+            "my_leaves":    my_leaves,
+            "team_leaves":  team_leaves,
+            "balance":      balance,
+            "error":        None,
         },
     )
 
@@ -121,16 +131,18 @@ def apply_leave_post(
                 
         return RedirectResponse("/leaves/", status_code=302)
     except (LeaveError, ValueError) as e:
-        balance = get_leave_balance(db, current_user["user_id"])
-        leaves = list_leaves_for_employee(db, current_user["user_id"])
+        _uid = current_user["user_id"]
+        balance = get_leave_balance(db, _uid)
         return templates.TemplateResponse(
             "leaves/index.html",
             {
-                "request": request,
+                "request":      request,
                 "current_user": current_user,
-                "leaves": leaves,
-                "balance": balance,
-                "error": str(e),
+                "leaves":       [],
+                "my_leaves":    list_leaves_for_employee(db, _uid),
+                "team_leaves":  [],
+                "balance":      balance,
+                "error":        str(e),
             },
             status_code=400,
         )
@@ -139,47 +151,86 @@ def apply_leave_post(
 @router.post("/{leave_id}/review")
 def review_leave_post(
     leave_id: int,
-    request: Request,
     action: str = Form(...),
     note: str = Form(""),
     db: Session = Depends(get_db),
     current_user: dict = Depends(role_required("admin", "manager", "team_lead")),
 ):
-    # Scope check: non-admin reviewers can only act on leaves within their hierarchy
-    if current_user["role"] != "admin":
-        from app.models.leave import Leave as LeaveModel
-        from app.services.hierarchy_service import get_subordinate_ids
-        leave_record = db.query(LeaveModel).filter(LeaveModel.id == leave_id).first()
-        if leave_record:
-            if leave_record.employee_id == current_user["user_id"]:
-                raise HTTPException(status_code=403, detail="You cannot review your own leave request")
+    role = current_user["role"]
+    uid  = current_user["user_id"]
 
-            subordinate_ids = get_subordinate_ids(db, current_user["user_id"])
-            if leave_record.employee_id not in subordinate_ids:
-                raise HTTPException(status_code=403, detail="This leave request is outside your scope")
+    # Resolve the record first — security checks must always run, never be skipped
+    from app.models.leave import Leave as LeaveModel
+    leave_record = db.query(LeaveModel).filter(LeaveModel.id == leave_id).first()
+    if not leave_record:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+
+    # Non-admin: scope + hierarchy-level guard (guards are now unconditional)
+    if role != "admin":
+        from app.models.user import User as UserModel
+        from app.services.hierarchy_service import safe_get_subordinate_ids
+        from app.core.rbac import can_act_on_roles
+
+        # Self-approval guard (global rule)
+        if leave_record.employee_id == uid:
+            raise HTTPException(status_code=403, detail="You cannot review your own leave request")
+
+        # Scope: leave owner must be a subordinate
+        subordinate_ids = safe_get_subordinate_ids(db, uid)
+        if leave_record.employee_id not in subordinate_ids:
+            raise HTTPException(status_code=403, detail="This leave request is outside your scope")
+
+        # Hierarchy-level: reviewer must outrank the leave owner
+        leave_user = db.query(UserModel).filter(UserModel.id == leave_record.employee_id).first()
+        if leave_user and not can_act_on_roles(role, uid, leave_user.role.value, leave_user.id):
+            raise HTTPException(status_code=403, detail="Insufficient hierarchy level to review this leave")
+
+        # Workflow: team_lead cannot act on pending_manager leaves
+        if role == "team_lead" and leave_record.status.value == "pending_manager":
+            raise HTTPException(status_code=403, detail="This leave has been forwarded to the manager")
+
+        # Workflow: forward action is only for team_lead
+        if action == "forward" and role != "team_lead":
+            raise HTTPException(status_code=403, detail="Only a team lead can forward a leave request")
+
     try:
-        updated = review_leave(db, leave_id, current_user["user_id"], action, note or None)
+        updated = review_leave(db, leave_id, uid, action, note or None)
 
         if _AUDIT_OK:
             try:
-                audit_action = "leave_approved" if action == "approved" else "leave_rejected"
-                _audit(db, current_user["user_id"], audit_action, "leave", leave_id,
-                       note or None)
+                _audit_action = (
+                    "leave_approved"  if action == "approved" else
+                    "leave_forwarded" if action == "forward"  else
+                    "leave_rejected"
+                )
+                _audit(db, uid, _audit_action, "leave", leave_id, note or None)
             except Exception:
                 pass
 
-        # ── Notify the employee of the review decision ──────────────────────────
+        # Notify the employee of approve/reject; notify manager of forward
         try:
-            verb = "✅ approved" if action == "approved" else "❌ rejected"
-            _notif(
-                db, updated.employee_id, "leave",
-                f"Your leave request was {verb} by "
-                f"{current_user.get('name', 'your manager')}.",
-                entity_id=leave_id,
-                actor_id=current_user["user_id"],
-            )
+            if action == "forward":
+                from app.models.user import User as _User
+                emp = db.query(_User).filter(_User.id == updated.employee_id).first()
+                if emp and emp.manager_id and emp.manager_id != uid:
+                    _notif(
+                        db, emp.manager_id, "leave",
+                        f"📋 A leave request from {emp.name} was forwarded to you by "
+                        f"{current_user.get('name', 'team lead')}.",
+                        entity_id=leave_id,
+                        actor_id=uid,
+                    )
+            else:
+                verb = "✅ approved" if action == "approved" else "❌ rejected"
+                _notif(
+                    db, updated.employee_id, "leave",
+                    f"Your leave request was {verb} by {current_user.get('name', 'your manager')}.",
+                    entity_id=leave_id,
+                    actor_id=uid,
+                )
         except Exception:
             pass
+
     except LeaveError:
         pass
     return RedirectResponse("/leaves/", status_code=302)

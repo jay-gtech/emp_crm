@@ -147,7 +147,7 @@
           </div>
           <span id="participantWarn"
                 style="display:none;color:#ef4444;font-size:12px;font-weight:600;margin-top:4px;">
-            ⚠ Please select at least one participant.
+            ⚠ Please select at least 2 participants.
           </span>
         </div>
 
@@ -169,7 +169,7 @@
           <button type="submit" class="btn btn-primary">Schedule Meeting</button>
           <span id="meetingSubmitWarn"
                 style="display:none;margin-left:10px;color:#ef4444;font-size:12px;font-weight:600;">
-            ⚠ Select at least one participant.
+            ⚠ Select at least 2 participants.
           </span>
         </div>
 
@@ -313,7 +313,7 @@ function filterParticipantOptions() {
   form.addEventListener('submit', function (e) {
     const sel  = document.getElementById('participantSelect');
     const warn = document.getElementById('meetingSubmitWarn');
-    if (sel && Array.from(sel.options).filter(o => o.selected).length === 0) {
+    if (sel && Array.from(sel.options).filter(o => o.selected).length < 2) {
       e.preventDefault();
       if (warn) { warn.style.display = 'inline'; setTimeout(() => warn.style.display = 'none', 3500); }
       sel.focus();

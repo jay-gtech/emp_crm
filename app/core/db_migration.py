@@ -156,6 +156,21 @@ _COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
 ]
 
 
+# ── PostgreSQL enum value additions (idempotent via IF NOT EXISTS) ────────────
+# SQLite stores enums as strings, so no DDL is needed there.
+_PG_ENUM_MIGRATIONS: list[tuple[str, str]] = [
+    # leavestatus
+    ("leavestatus", "pending_manager"),
+    # auditaction — values added after initial schema deployment
+    ("auditaction", "task_started"),
+    ("auditaction", "task_submitted"),
+    ("auditaction", "task_approved"),
+    ("auditaction", "task_rejected"),
+    ("auditaction", "leave_forwarded"),
+    ("auditaction", "meeting_created"),
+]
+
+
 # ── New-table DDL (SQLite only — PostgreSQL gets these via create_all()) ──────
 # These tables all have SQLAlchemy models, so create_all() handles them on PG.
 # Kept here for SQLite backward-compatibility only.
@@ -217,6 +232,10 @@ _SQLITE_TABLE_MIGRATIONS: list[tuple[str, str]] = [
         "idx_notifications_module",
         "CREATE INDEX IF NOT EXISTS idx_notifications_module ON notifications(module);",
     ),
+    (
+        "idx_audit_user",
+        "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(actor_id);",
+    ),
 ]
 
 
@@ -265,6 +284,28 @@ def apply_safe_migrations(engine: Engine) -> None:
 
     try:
         with engine.begin() as conn:
+            # ── PostgreSQL: add new enum values ───────────────────────────────
+            if pg:
+                for enum_type, new_value in _PG_ENUM_MIGRATIONS:
+                    try:
+                        conn.execute(
+                            text(f"ALTER TYPE {enum_type} ADD VALUE IF NOT EXISTS '{new_value}';")
+                        )
+                        logger.info("[migration] Enum %s.%s ensured ✓", enum_type, new_value)
+                    except Exception as enum_exc:
+                        logger.warning(
+                            "[migration] Enum %s.%s failed: %s", enum_type, new_value, enum_exc
+                        )
+
+                # ── PostgreSQL: audit performance index ───────────────────────
+                try:
+                    conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(actor_id);"
+                    ))
+                    logger.info("[migration] Index idx_audit_user ensured ✓")
+                except Exception as idx_exc:
+                    logger.warning("[migration] idx_audit_user failed: %s", idx_exc)
+
             # ── Ensure new tables exist (SQLite only) ─────────────────────────
             # PostgreSQL gets all tables via Base.metadata.create_all() at startup,
             # so the SQLite-specific DDL is skipped to avoid syntax errors.

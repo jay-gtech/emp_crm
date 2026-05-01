@@ -14,7 +14,8 @@
 .pill-approved { background: #d1fae5; color: #065f46; }
 .pill-rejected { background: #fee2e2; color: #991b1b; }
 .pill-pending  { background: #fef3c7; color: #92400e; }
-.pill-type     { background: #ede9fe; color: #5b21b6; }
+.pill-type            { background: #ede9fe; color: #5b21b6; }
+.pill-pending-manager { background: #e0f2fe; color: #075985; }
 
 /* ── Balance card ─────────────────────────────────────────────── */
 .leave-bal-nums { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -50,6 +51,8 @@
 .btn-approve:hover { opacity: .88; }
 .btn-reject  { background: #ef4444; color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .btn-reject:hover  { opacity: .88; }
+.btn-forward { background: #0284c7; color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.btn-forward:hover { opacity: .88; }
 
 /* ── Empty state ──────────────────────────────────────────────── */
 .leave-empty { text-align: center; padding: 36px 20px; color: var(--gray-400); font-size: 13px; }
@@ -109,6 +112,7 @@
           <td>
             {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
             {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
+            {% elif leave.status.value == 'pending_manager' %}<span class="leave-pill pill-pending-manager">↑ Fwd to Mgr</span>
             {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
           </td>
           <td class="text-sm" style="color:var(--gray-500);max-width:160px">{{ leave.reason or '—' }}</td>
@@ -116,7 +120,7 @@
             {% if leave.review_note %}{{ leave.review_note[:40] }}{% if leave.review_note|length > 40 %}…{% endif %}{% else %}—{% endif %}
           </td>
           <td>
-            {% if leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
+            {% if leave.status.value in ('pending', 'pending_manager') and leave.employee_id != current_user.user_id %}
             <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form">
               <input type="hidden" name="action" value="" />
               <input type="text" name="note" class="form-control" placeholder="Note…" style="font-size:12px;padding:4px 8px" />
@@ -144,13 +148,14 @@
         <span class="mob-card-title">Emp #{{ leave.employee_id }} — <span class="leave-pill pill-type" style="font-size:10px">{{ leave.leave_type.value }}</span></span>
         {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
         {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
+        {% elif leave.status.value == 'pending_manager' %}<span class="leave-pill pill-pending-manager">↑ Fwd to Mgr</span>
         {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
       </div>
       <div class="mob-card-row"><span class="mob-card-lbl">From</span><span class="mob-card-val">{{ leave.start_date }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
       {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
-      {% if leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
+      {% if leave.status.value in ('pending', 'pending_manager') and leave.employee_id != current_user.user_id %}
       <div class="mob-card-actions">
         <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
           <input type="hidden" name="action" value="" />
@@ -238,52 +243,111 @@
 
 </div>
 
-{# Leave requests list #}
-<div class="card">
-  <div class="leave-section-hdr">
-    <h2>
-      {% if current_user.role in ('manager', 'team_lead') %}👥 Team Leave Requests
-      {% else %}📋 My Leave Requests{% endif %}
-    </h2>
-    {% if current_user.role in ('manager', 'team_lead') %}
-    <a href="/api/leave/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
-    {% endif %}
-  </div>
+{# ── Jinja macro: status pill (shared by both cards) ──────────────────────── #}
+{% macro leave_status_pill(leave) %}
+  {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
+  {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
+  {% elif leave.status.value == 'pending_manager' %}<span class="leave-pill pill-pending-manager">↑ Fwd to Mgr</span>
+  {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
+{% endmacro %}
 
-  {% if leaves %}
-  {# Desktop table #}
+{# ══ SECTION 1 — My Leave Requests (own history, all statuses) ═════════════ #}
+<div class="card" style="margin-bottom:20px">
+  <div class="leave-section-hdr">
+    <h2>📋 My Leave Requests</h2>
+  </div>
+  {% if my_leaves %}
   <div class="table-view" style="overflow-x:auto">
     <table class="leave-table table-sticky">
       <thead>
         <tr>
-          {% if current_user.role != 'employee' %}<th>Employee</th>{% endif %}
           <th>Type</th><th>From</th><th>To</th><th>Days</th>
           <th>Status</th><th>Reason</th><th>Note</th>
-          {% if current_user.role in ('manager', 'team_lead') %}<th>Action</th>{% endif %}
         </tr>
       </thead>
       <tbody>
-        {% for leave in leaves %}
+        {% for leave in my_leaves %}
         <tr>
-          {% if current_user.role != 'employee' %}
-          <td style="font-weight:600;color:var(--gray-600)">#{{ leave.employee_id }}</td>
-          {% endif %}
           <td><span class="leave-pill pill-type">{{ leave.leave_type.value }}</span></td>
           <td>{{ leave.start_date }}</td>
           <td>{{ leave.end_date }}</td>
           <td style="font-weight:600">{{ leave.total_days }}d</td>
-          <td>
-            {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
-            {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
-            {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
-          </td>
+          <td>{{ leave_status_pill(leave) }}</td>
           <td class="text-sm" style="color:var(--gray-500)">{{ leave.reason or '—' }}</td>
           <td class="text-sm" style="color:var(--gray-400)">
             {% if leave.review_note %}{{ leave.review_note[:40] }}{% if leave.review_note|length > 40 %}…{% endif %}{% else %}—{% endif %}
           </td>
-          {% if current_user.role in ('manager', 'team_lead') %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-view" style="padding:12px">
+    {% for leave in my_leaves %}
+    <div class="mob-card">
+      <div class="mob-card-hdr">
+        <span class="mob-card-title"><span class="leave-pill pill-type" style="font-size:10px">{{ leave.leave_type.value }}</span></span>
+        {{ leave_status_pill(leave) }}
+      </div>
+      <div class="mob-card-row"><span class="mob-card-lbl">From</span><span class="mob-card-val">{{ leave.start_date }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
+      <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
+      {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
+      {% if leave.review_note %}<div class="mob-card-row"><span class="mob-card-lbl">Note</span><span class="mob-card-val">{{ leave.review_note[:60] }}</span></div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="leave-empty">
+    <span class="leave-empty-icon">📭</span>
+    <p>You have no leave requests yet.</p>
+  </div>
+  {% endif %}
+</div>
+
+{# ══ SECTION 2 — Team Leave Requests (manager / team_lead only) ════════════ #}
+{% if current_user.role in ('manager', 'team_lead') %}
+<div class="card">
+  <div class="leave-section-hdr">
+    <h2>👥 Team Leave Requests</h2>
+    <a href="/api/leave/export" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+  </div>
+  {% if team_leaves %}
+  <div class="table-view" style="overflow-x:auto">
+    <table class="leave-table table-sticky">
+      <thead>
+        <tr>
+          <th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th>
+          <th>Status</th><th>Reason</th><th>Note</th><th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for leave in team_leaves %}
+        <tr>
+          <td style="font-weight:600;color:var(--gray-600)">#{{ leave.employee_id }}</td>
+          <td><span class="leave-pill pill-type">{{ leave.leave_type.value }}</span></td>
+          <td>{{ leave.start_date }}</td>
+          <td>{{ leave.end_date }}</td>
+          <td style="font-weight:600">{{ leave.total_days }}d</td>
+          <td>{{ leave_status_pill(leave) }}</td>
+          <td class="text-sm" style="color:var(--gray-500)">{{ leave.reason or '—' }}</td>
+          <td class="text-sm" style="color:var(--gray-400)">
+            {% if leave.review_note %}{{ leave.review_note[:40] }}{% if leave.review_note|length > 40 %}…{% endif %}{% else %}—{% endif %}
+          </td>
           <td>
-            {% if leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
+            {# Team lead: approve / reject / forward pending leaves #}
+            {% if current_user.role == 'team_lead' and leave.status.value == 'pending' %}
+            <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form">
+              <input type="hidden" name="action" value="" />
+              <input type="text" name="note" class="form-control" placeholder="Note…" style="font-size:12px;padding:4px 8px" />
+              <div class="review-btns">
+                <button type="submit" class="btn-approve" onclick="this.form.querySelector('[name=action]').value='approved'">✓ Approve</button>
+                <button type="submit" class="btn-reject"  onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
+                <button type="submit" class="btn-forward" onclick="this.form.querySelector('[name=action]').value='forward'">↑ Forward</button>
+              </div>
+            </form>
+            {# Manager: approve / reject pending or forwarded leaves #}
+            {% elif current_user.role == 'manager' and leave.status.value in ('pending', 'pending_manager') %}
             <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form">
               <input type="hidden" name="action" value="" />
               <input type="text" name="note" class="form-control" placeholder="Note…" style="font-size:12px;padding:4px 8px" />
@@ -293,36 +357,37 @@
               </div>
             </form>
             {% else %}
-              <span style="color:var(--gray-300);font-size:12px">
-                {%- if leave.employee_id == current_user.user_id -%}Your leave{%- else -%}Reviewed{%- endif -%}
-              </span>
+              <span style="color:var(--gray-300);font-size:12px">Reviewed</span>
             {% endif %}
           </td>
-          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {# Mobile card view #}
   <div class="card-view" style="padding:12px">
-    {% for leave in leaves %}
+    {% for leave in team_leaves %}
     <div class="mob-card">
       <div class="mob-card-hdr">
-        <span class="mob-card-title">
-          {% if current_user.role != 'employee' %}Emp #{{ leave.employee_id }} — {% endif %}
-          <span class="leave-pill pill-type" style="font-size:10px">{{ leave.leave_type.value }}</span>
-        </span>
-        {% if leave.status.value == 'approved' %}<span class="leave-pill pill-approved">✓ Approved</span>
-        {% elif leave.status.value == 'rejected' %}<span class="leave-pill pill-rejected">✗ Rejected</span>
-        {% else %}<span class="leave-pill pill-pending">⏳ Pending</span>{% endif %}
+        <span class="mob-card-title">Emp #{{ leave.employee_id }} — <span class="leave-pill pill-type" style="font-size:10px">{{ leave.leave_type.value }}</span></span>
+        {{ leave_status_pill(leave) }}
       </div>
       <div class="mob-card-row"><span class="mob-card-lbl">From</span><span class="mob-card-val">{{ leave.start_date }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">To</span><span class="mob-card-val">{{ leave.end_date }}</span></div>
       <div class="mob-card-row"><span class="mob-card-lbl">Days</span><span class="mob-card-val">{{ leave.total_days }}d</span></div>
       {% if leave.reason %}<div class="mob-card-row"><span class="mob-card-lbl">Reason</span><span class="mob-card-val">{{ leave.reason[:60] }}</span></div>{% endif %}
-      {% if current_user.role in ('manager', 'team_lead') and leave.status.value == 'pending' and leave.employee_id != current_user.user_id %}
       <div class="mob-card-actions">
+        {% if current_user.role == 'team_lead' and leave.status.value == 'pending' %}
+        <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
+          <input type="hidden" name="action" value="" />
+          <input type="text" name="note" class="form-control" placeholder="Note (optional)…" style="margin-bottom:6px" />
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="submit" class="btn-approve" style="flex:1" onclick="this.form.querySelector('[name=action]').value='approved'">✓ Approve</button>
+            <button type="submit" class="btn-reject"  style="flex:1" onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
+            <button type="submit" class="btn-forward" style="flex:1" onclick="this.form.querySelector('[name=action]').value='forward'">↑ Forward</button>
+          </div>
+        </form>
+        {% elif current_user.role == 'manager' and leave.status.value in ('pending', 'pending_manager') %}
         <form method="post" action="/leaves/{{ leave.id }}/review" class="review-form" style="width:100%">
           <input type="hidden" name="action" value="" />
           <input type="text" name="note" class="form-control" placeholder="Note (optional)…" style="margin-bottom:6px" />
@@ -331,21 +396,19 @@
             <button type="submit" class="btn-reject"  style="flex:1" onclick="this.form.querySelector('[name=action]').value='rejected'">✗ Reject</button>
           </div>
         </form>
+        {% endif %}
       </div>
-      {% endif %}
     </div>
     {% endfor %}
   </div>
   {% else %}
   <div class="leave-empty">
     <span class="leave-empty-icon">📭</span>
-    <p>
-      {% if current_user.role in ('manager', 'team_lead') %}No leave requests from your team yet.
-      {% else %}You have no leave requests yet.{% endif %}
-    </p>
+    <p>No pending leave requests from your team.</p>
   </div>
   {% endif %}
 </div>
+{% endif %}{# end manager/team_lead team card #}
 
 {% endif %}{# end admin vs others #}
 

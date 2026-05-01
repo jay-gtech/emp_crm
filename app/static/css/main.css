@@ -1094,6 +1094,29 @@ tbody tr:nth-child(10) { animation-delay: 270ms; }
 [data-theme="dark"] .notif-item.unread:hover { background: rgba(79, 70, 229, 0.2); }
 [data-theme="dark"] .notif-item-msg { color: var(--gray-800); }
 
+/* ── 109: Dark Mode Contrast Fixes ── */
+[data-theme="dark"] td,
+[data-theme="dark"] p,
+[data-theme="dark"] li,
+[data-theme="dark"] label,
+[data-theme="dark"] span:not(.badge):not([class*="pill"]):not([class*="chip"]) { color: inherit; }
+[data-theme="dark"] .text-muted { color: #94a3b8 !important; }
+[data-theme="dark"] a { color: #60a5fa; }
+[data-theme="dark"] a:hover { color: #93c5fd; }
+[data-theme="dark"] .card-body,
+[data-theme="dark"] .card-header h2,
+[data-theme="dark"] .mob-card-val,
+[data-theme="dark"] .mob-card-title { color: var(--gray-800); }
+/* Chat panel contrast */
+[data-theme="dark"] .chat-bubble,
+[data-theme="dark"] .chat-msg-text,
+[data-theme="dark"] .chat-input { color: var(--gray-800); background: var(--gray-100); }
+[data-theme="dark"] .chat-bubble.own { background: #3730a3; color: #e0e7ff; }
+[data-theme="dark"] .chat-input { border-color: var(--gray-300); }
+[data-theme="dark"] .chat-input::placeholder { color: var(--gray-500); }
+/* Table body text */
+[data-theme="dark"] tbody td { color: var(--gray-800); }
+
 
 /* ── Empty States ── */
 .ux-empty {

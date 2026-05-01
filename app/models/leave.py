@@ -14,6 +14,7 @@ class LeaveStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    pending_manager = "pending_manager"  # forwarded by team_lead, awaiting manager
 
 
 class Leave(Base):

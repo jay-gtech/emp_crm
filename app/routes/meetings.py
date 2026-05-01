@@ -20,6 +20,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
+# Audit trigger — imported defensively so meetings work even if audit table is missing
+try:
+    from app.services.audit_service import log_action as _audit
+    _AUDIT_OK = True
+except Exception:
+    _AUDIT_OK = False
+
 router = APIRouter(tags=["meetings"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -196,8 +203,9 @@ def create_meeting(
     _validate_mtg_title(title)
     title = title.strip()
 
-    if not participant_ids:
-        raise HTTPException(status_code=400, detail="At least one participant is required.")
+    # ── 107: minimum 2 participants required ──────────────────────────────────
+    if not participant_ids or len(participant_ids) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 participants are required.")
 
     try:
         dt = datetime.fromisoformat(scheduled_time)
@@ -237,6 +245,14 @@ def create_meeting(
         log.error("create_meeting failed: %s", exc, exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create meeting: {exc}")
+
+    # Audit log — fire-and-forget
+    if _AUDIT_OK:
+        try:
+            _audit(db, current_user["user_id"], "meeting_created", "meeting", meeting.id,
+                   f'"{title}" with {len(unique_ids)} participant(s)')
+        except Exception:
+            pass
 
     # Notify each participant — fire-and-forget
     try:

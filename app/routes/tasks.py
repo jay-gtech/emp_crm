@@ -134,8 +134,8 @@ def task_list(
     if role == "admin":
         task_rows = list_all_assignment_rows(db)
     elif role in ("manager", "team_lead"):
-        from app.services.hierarchy_service import get_subordinate_ids
-        subordinate_ids = get_subordinate_ids(db, uid)
+        from app.services.hierarchy_service import safe_get_subordinate_ids
+        subordinate_ids = safe_get_subordinate_ids(db, uid)
         task_rows = list_visible_tasks(db, uid, subordinate_ids)
     else:
         task_rows = list_tasks_for_employee(db, uid)
@@ -196,31 +196,37 @@ def task_list(
     # ── Assignable employees for the "create task" form ───────────────────────
     if role == "admin":
         from app.models.user import UserRole as _UserRole
+        # ── 110: include all assignable roles incl. security_guard ──────────
         employees = (
             db.query(User)
             .filter(
                 User.is_active == 1,
-                User.role.in_([_UserRole.manager, _UserRole.team_lead]),
+                User.role.in_([
+                    _UserRole.manager, _UserRole.team_lead,
+                    _UserRole.employee, _UserRole.security_guard,
+                ]),
             )
             .order_by(User.name)
             .all()
         )
     elif role == "manager":
-        from app.services.hierarchy_service import get_subordinate_ids as _sub_ids
+        from app.services.hierarchy_service import safe_get_subordinate_ids as _sub_ids
         from app.models.user import UserRole as _UserRole
         sub_ids = _sub_ids(db, uid)
         employees = (
             db.query(User)
             .filter(
                 User.id.in_(sub_ids),
-                User.role == _UserRole.team_lead,
+                User.role.in_([
+                    _UserRole.team_lead, _UserRole.employee, _UserRole.security_guard,
+                ]),
                 User.is_active == 1,
             )
             .order_by(User.name)
             .all()
         ) if sub_ids else []
     elif role == "team_lead":
-        from app.services.hierarchy_service import get_subordinate_ids as _sub_ids
+        from app.services.hierarchy_service import safe_get_subordinate_ids as _sub_ids
         from app.models.user import UserRole as _UserRole
         sub_ids = _sub_ids(db, uid)
         employees = (
@@ -258,12 +264,37 @@ def task_list(
         except Exception:
             batch_summary = []
 
+    # ── Own-data / team-data split for section rendering ─────────────────────
+    # my_tasks:   rows where the current user is the assignee
+    # team_tasks: rows assigned to a direct/transitive subordinate
+    #             (NOT simply "assigned_to != uid" — that leaks non-hierarchy tasks)
+    if role in ("manager", "team_lead"):
+        # subordinate_ids was already fetched at the top of this branch; reuse it.
+        # Fall back via safe wrapper in case the variable is somehow absent.
+        try:
+            _sub_id_set = set(subordinate_ids)
+        except NameError:
+            from app.services.hierarchy_service import safe_get_subordinate_ids
+            _sub_id_set = set(safe_get_subordinate_ids(db, uid))
+        my_tasks   = [r for r in task_rows if r.assigned_to == uid]
+        team_tasks = [r for r in task_rows if r.assigned_to in _sub_id_set] if _sub_id_set else []
+    elif role == "admin":
+        # Admin sees all; keep unified — my_tasks unused in template for admin
+        my_tasks   = []
+        team_tasks = []
+    else:
+        # Employee / security_guard: everything is their own data
+        my_tasks   = task_rows
+        team_tasks = []
+
     return templates.TemplateResponse(
         "tasks/list.html",
         {
             "request":         request,
             "current_user":    current_user,
-            "tasks":           task_rows,
+            "tasks":           task_rows,   # kept for admin path + filter count
+            "my_tasks":        my_tasks,
+            "team_tasks":      team_tasks,
             "employees":       employees,
             "emp_map":         emp_map,
             "role_map":        role_map,
@@ -299,23 +330,33 @@ def create_task_post(
     today = date.today()
     now   = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    # ── 102: due_date is required ──────────────────────────────────────────
+    if not due_date or not due_date.strip():
+        raise HTTPException(status_code=400, detail="Due Date is required")
+
+    # ── 103: deadline is required ─────────────────────────────────────────
+    if not deadline or not deadline.strip():
+        raise HTTPException(status_code=400, detail="Deadline is required")
+
     dd = None
-    if due_date:
-        try:
-            dd = date.fromisoformat(due_date)
-            if dd < today:
-                return RedirectResponse("/tasks/?error=due_date_past", status_code=302)
-        except ValueError:
-            pass
+    try:
+        dd = date.fromisoformat(due_date)
+        if dd < today:
+            return RedirectResponse("/tasks/?error=due_date_past", status_code=302)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid Due Date format")
 
     dl: datetime | None = None
-    if deadline:
-        try:
-            dl = datetime.fromisoformat(deadline)
-            if dl < now:
-                return RedirectResponse("/tasks/?error=deadline_past", status_code=302)
-        except ValueError:
-            pass
+    try:
+        dl = datetime.fromisoformat(deadline)
+        if dl < now:
+            return RedirectResponse("/tasks/?error=deadline_past", status_code=302)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid Deadline format")
+
+    # ── 101: deadline must be >= due_date ─────────────────────────────────
+    if dl.date() < dd:
+        raise HTTPException(status_code=400, detail="Deadline must be on or after Due Date")
 
     if not assigned_to:
         return RedirectResponse("/tasks/?error=no_assignee", status_code=302)
