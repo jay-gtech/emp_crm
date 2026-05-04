@@ -144,13 +144,22 @@ def review_leave(
     return leave
 
 
-def list_leaves_for_employee(db: Session, employee_id: int) -> list[Leave]:
-    return (
+def list_leaves_for_employee(
+    db: Session,
+    employee_id: int,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Leave]:
+    q = (
         db.query(Leave)
         .filter(Leave.employee_id == employee_id)
         .order_by(Leave.created_at.desc())
-        .all()
     )
+    if offset > 0:
+        q = q.offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    return q.all()
 
 
 def list_pending_leaves(db: Session) -> list[Leave]:
@@ -162,5 +171,14 @@ def list_pending_leaves(db: Session) -> list[Leave]:
     )
 
 
-def list_all_leaves(db: Session) -> list[Leave]:
-    return db.query(Leave).order_by(Leave.created_at.desc()).all()
+def list_all_leaves(
+    db: Session,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Leave]:
+    q = db.query(Leave).order_by(Leave.created_at.desc())
+    if offset > 0:
+        q = q.offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    return q.all()

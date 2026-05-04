@@ -179,24 +179,41 @@ def register_visitor(
 # 3. List pending visitors
 # ---------------------------------------------------------------------------
 
-def list_pending_visitors(db: Session) -> list[Visitor]:
+def list_pending_visitors(
+    db: Session,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Visitor]:
     """Return all visitors whose status is 'pending', newest first."""
     try:
-        return (
+        q = (
             db.query(Visitor)
             .filter(Visitor.status == "pending")
             .order_by(Visitor.created_at.desc())
-            .all()
         )
+        if offset > 0:
+            q = q.offset(offset)
+        if limit is not None:
+            q = q.limit(limit)
+        return q.all()
     except Exception as exc:
         logger.error("list_pending_visitors failed: %s", exc)
         return []
 
 
-def list_all_visitors(db: Session) -> list[Visitor]:
+def list_all_visitors(
+    db: Session,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Visitor]:
     """Return all visitors, newest first."""
     try:
-        return db.query(Visitor).order_by(Visitor.created_at.desc()).all()
+        q = db.query(Visitor).order_by(Visitor.created_at.desc())
+        if offset > 0:
+            q = q.offset(offset)
+        if limit is not None:
+            q = q.limit(limit)
+        return q.all()
     except Exception as exc:
         logger.error("list_all_visitors failed: %s", exc)
         return []
@@ -282,15 +299,24 @@ def reject_visitor(db: Session, visitor_id: int, reviewer_id: int) -> Visitor:
 # 5. Security guard's own visitor log
 # ---------------------------------------------------------------------------
 
-def get_my_visitors(db: Session, user_id: int) -> list[Visitor]:
+def get_my_visitors(
+    db: Session,
+    user_id: int,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Visitor]:
     """Return all visitors registered by *user_id*, newest first."""
     try:
-        return (
+        q = (
             db.query(Visitor)
             .filter(Visitor.created_by == user_id)
             .order_by(Visitor.created_at.desc())
-            .all()
         )
+        if offset > 0:
+            q = q.offset(offset)
+        if limit is not None:
+            q = q.limit(limit)
+        return q.all()
     except Exception as exc:
         logger.error("get_my_visitors failed for user_id=%s: %s", user_id, exc)
         return []

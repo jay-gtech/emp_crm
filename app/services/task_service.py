@@ -298,19 +298,27 @@ def get_batch_tasks(db: Session, batch_id: str) -> list[Task]:
     )
 
 
-def list_tasks_for_employee(db: Session, employee_id: int) -> list[SimpleNamespace]:
+def list_tasks_for_employee(
+    db: Session,
+    employee_id: int,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[SimpleNamespace]:
     """
     Return one row per assignment for a single employee.
     Uses an explicit JOIN — no joinedload, no tasks_1 alias.
     """
-    rows = (
+    q = (
         db.query(TaskAssignment, Task)
         .join(Task, TaskAssignment.task_id == Task.id)
         .filter(TaskAssignment.user_id == employee_id)
         .order_by(Task.created_at.desc())   # 108: newest tasks first
-        .all()
     )
-    return [_assignment_to_row(a, t) for a, t in rows]
+    if offset > 0:
+        q = q.offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    return [_assignment_to_row(a, t) for a, t in q.all()]
 
 
 def _manager_rows(
@@ -378,15 +386,22 @@ def list_visible_tasks(
     return _manager_rows(db, user_id, subordinate_ids=_subordinate_ids)
 
 
-def list_all_assignment_rows(db: Session) -> list[SimpleNamespace]:
+def list_all_assignment_rows(
+    db: Session,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[SimpleNamespace]:
     """Admin: one row per TaskAssignment across all tasks. Explicit JOIN — no joinedload."""
-    rows = (
+    q = (
         db.query(TaskAssignment, Task)
         .join(Task, TaskAssignment.task_id == Task.id)
         .order_by(Task.created_at.desc())
-        .all()
     )
-    return [_assignment_to_row(a, t) for a, t in rows]
+    if offset > 0:
+        q = q.offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    return [_assignment_to_row(a, t) for a, t in q.all()]
 
 
 def list_tasks_assigned_by(db: Session, manager_id: int) -> list[Task]:
@@ -398,8 +413,18 @@ def list_tasks_assigned_by(db: Session, manager_id: int) -> list[Task]:
     )
 
 
-def list_all_tasks(db: Session, request_user: dict | None = None) -> list[Task]:
-    tasks = db.query(Task).order_by(Task.created_at.desc()).all()
+def list_all_tasks(
+    db: Session,
+    request_user: dict | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[Task]:
+    q = db.query(Task).order_by(Task.created_at.desc())
+    if offset > 0:
+        q = q.offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    tasks = q.all()
     if request_user and apply_hierarchy_filter:
         tasks = apply_hierarchy_filter(db, request_user, tasks)
     return tasks

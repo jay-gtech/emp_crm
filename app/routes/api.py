@@ -18,6 +18,11 @@ from app.services.task_service import list_all_tasks, list_tasks_for_employee
 from app.services.leave_service import list_all_leaves, list_leaves_for_employee
 from app.services.attendance_service import get_attendance_history
 from app.services.employee_service import list_employees
+try:
+    from app.services.visitor_service import list_all_visitors as _list_all_visitors
+    _VISITOR_OK = True
+except Exception:
+    _VISITOR_OK = False
 
 try:
     from app.services.dashboard_service import (
@@ -163,15 +168,18 @@ def export_employees_csv(
 
 @router.get("/tasks")
 def api_tasks(
+    limit: int = Query(50, ge=1, le=100, description="Max records to return (1–100)"),
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
     uid = current_user["user_id"]
     role = current_user["role"]
     if role in ("admin", "manager", "team_lead"):
-        tasks = list_all_tasks(db, request_user=current_user)
+        tasks = list_all_tasks(db, request_user=current_user, limit=limit, offset=offset)
     else:
-        tasks = list_tasks_for_employee(db, uid)
+        tasks = list_tasks_for_employee(db, uid, limit=limit, offset=offset)
+    # DB-level pagination applied inside service functions
     return JSONResponse([_task_dict(t) for t in tasks])
 
 
@@ -254,14 +262,17 @@ def export_attendance_csv(
 
 @router.get("/leave")
 def api_leave(
+    limit: int = Query(50, ge=1, le=100, description="Max records to return (1–100)"),
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(login_required),
 ):
     role = current_user["role"]
     if role in ("admin", "manager", "team_lead"):
-        leaves = list_all_leaves(db)
+        leaves = list_all_leaves(db, limit=limit, offset=offset)
     else:
-        leaves = list_leaves_for_employee(db, current_user["user_id"])
+        leaves = list_leaves_for_employee(db, current_user["user_id"], limit=limit, offset=offset)
+    # DB-level pagination applied inside service functions
     return JSONResponse([_leave_dict(l) for l in leaves])
 
 
@@ -291,6 +302,39 @@ def export_leave_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Visitors
+# ---------------------------------------------------------------------------
+
+def _visitor_dict(v) -> dict:
+    return {
+        "id":         v.id,
+        "name":       v.name,
+        "phone":      v.phone,
+        "purpose":    v.purpose,
+        "image_path": v.image_path,
+        "status":     v.status,
+        "created_by": v.created_by,
+        "approved_by": v.approved_by,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+    }
+
+
+@router.get("/visitors")
+def api_visitors(
+    limit: int = Query(50, ge=1, le=100, description="Max records to return (1–100)"),
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(role_required("admin", "manager")),
+):
+    """Paginated list of all visitors — admin/manager only."""
+    if not _VISITOR_OK:
+        return JSONResponse([])
+    # DB-level pagination applied inside service function
+    visitors = _list_all_visitors(db, limit=limit, offset=offset)
+    return JSONResponse([_visitor_dict(v) for v in visitors])
 
 
 # ---------------------------------------------------------------------------

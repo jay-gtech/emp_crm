@@ -53,13 +53,22 @@ def validate_reporting(role: str, parent_user: User | None) -> None:
 def list_employees(
     db: Session, 
     department: str | None = None, 
-    request_user: dict | None = None
+    request_user: dict | None = None,
+    limit: int | None = None,
+    offset: int = 0
 ) -> list[User]:
     q = db.query(User).filter(User.is_active == 1)
     if department:
         q = q.filter(User.department == department)
+    
+    q = q.order_by(User.name)
+
+    if offset > 0:
+        q = q.offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
         
-    result = q.order_by(User.name).all()
+    result = q.all()
     
     if request_user and apply_hierarchy_filter:
         result = apply_hierarchy_filter(db, request_user, result)
