@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request, Form, Depends, HTTPException
+from fastapi import APIRouter, Request, Form, Depends, HTTPException, Query
+import logging
 
 from app.core.validators import validate_text as _validate_text
 from app.core.constants  import MAX_NAME_LENGTH
@@ -13,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.auth import login_required, role_required
+from app.models.user import User
 from app.services.employee_service import (
     list_employees, get_employee, create_employee, update_employee,
     deactivate_employee, list_departments, EmployeeError,
@@ -26,6 +28,62 @@ except Exception:
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger(__name__)
+
+
+@router.get("/api")
+def get_employees_api(
+    limit:      int      = Query(10, ge=1, le=100),
+    offset:     int      = Query(0, ge=0),
+    department: str | None = Query(None),
+    db:           Session = Depends(get_db),
+    current_user: dict    = Depends(login_required),
+):
+    """JSON endpoint — paginated employee list with RBAC filtering."""
+    uid  = current_user["user_id"]
+    role = current_user["role"]
+    try:
+        query = db.query(User).filter(User.is_active == 1)
+
+        # ── RBAC: scope query to the caller's hierarchy ───────────────────────
+        if role == "admin":
+            pass  # admin sees all active employees
+        elif role in ("manager", "team_lead"):
+            try:
+                from app.services.hierarchy_service import safe_get_subordinate_ids
+                sub_ids = safe_get_subordinate_ids(db, uid)
+            except Exception:
+                sub_ids = []
+            # always include the caller themselves alongside their subordinates
+            visible_ids = sub_ids + [uid]
+            query = query.filter(User.id.in_(visible_ids))
+        else:
+            # employee / security_guard: own record only
+            query = query.filter(User.id == uid)
+
+        if department:
+            query = query.filter(User.department == department)
+
+        total     = query.count()
+        employees = query.order_by(User.name).offset(offset).limit(limit).all()
+
+        data = [
+            {
+                "id":         emp.id,
+                "name":       emp.name,
+                "email":      emp.email,
+                # .value ensures the enum serialises as a plain string
+                "role":       emp.role.value if hasattr(emp.role, "value") else str(emp.role),
+                "department": emp.department or "",
+                "is_active":  bool(getattr(emp, "is_active", 1)),
+            }
+            for emp in employees
+        ]
+        return {"data": data, "total": total, "offset": offset, "limit": limit}
+
+    except Exception as exc:
+        logger.error("get_employees_api failed for user_id=%s: %s", uid, exc)
+        return {"data": [], "total": 0, "offset": offset, "limit": limit}
 
 
 @router.get("/", response_class=HTMLResponse)
