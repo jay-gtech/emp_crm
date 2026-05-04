@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.task import Task, TaskStatus, TaskPriority, TaskAssignment, AssignmentStatus
 from app.models.user import User
@@ -62,7 +62,7 @@ def _sync_task_aggregate_status(db: Session, task_id: int) -> None:
     for commit().  Never raises — failures are logged and swallowed.
     """
     try:
-        task = db.query(Task).filter(Task.id == task_id).first()
+        task = db.get(Task, task_id)
         if not task:
             return
 
@@ -94,7 +94,7 @@ def _sync_task_aggregate_status(db: Session, task_id: int) -> None:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _get_task_or_404(db: Session, task_id: int) -> Task:
-    task = db.query(Task).filter(Task.id == task_id).first()
+    task = db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
@@ -144,8 +144,10 @@ def _assignment_to_row(assignment: TaskAssignment, task: Task | None = None) -> 
 # ── Assignment validation ─────────────────────────────────────────────────────
 
 def validate_assignment(db: Session, assigner_id: int, assignee_id: int) -> None:
-    assigner = db.query(User).filter(User.id == assigner_id).first()
-    assignee = db.query(User).filter(User.id == assignee_id).first()
+    # .get() checks the session identity map before issuing SQL — the same
+    # assigner is cached after the first call when invoked inside a bulk loop.
+    assigner = db.query(User).get(assigner_id)
+    assignee = db.query(User).get(assignee_id)
     if not assigner or not assignee:
         return
 
@@ -283,7 +285,7 @@ def create_tasks_bulk(
 # ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 def get_task(db: Session, task_id: int) -> Task:
-    task = db.query(Task).filter(Task.id == task_id).first()
+    task = db.get(Task, task_id)
     if not task:
         raise TaskError("Task not found.")
     return task
@@ -419,7 +421,11 @@ def list_all_tasks(
     limit: int | None = None,
     offset: int = 0,
 ) -> list[Task]:
-    q = db.query(Task).order_by(Task.created_at.desc())
+    q = (
+        db.query(Task)
+        .options(selectinload(Task.assignments))  # one follow-up IN query; prevents N+1 on task.assignments
+        .order_by(Task.created_at.desc())
+    )
     if offset > 0:
         q = q.offset(offset)
     if limit is not None:
@@ -434,11 +440,12 @@ def list_all_tasks(
 
 def update_task_status(db: Session, task_id: int, status: str, requester_id: int) -> Task:
     task = get_task(db, task_id)
-    is_assignee = db.query(TaskAssignment).filter(
+    # Fetch once — used for both the auth check and the status update below.
+    assignment = db.query(TaskAssignment).filter(
         TaskAssignment.task_id == task_id,
         TaskAssignment.user_id == requester_id,
-    ).first() is not None
-    if not is_assignee and task.assigned_by != requester_id:
+    ).first()
+    if assignment is None and task.assigned_by != requester_id:
         raise TaskError("Not authorized to update this task.")
 
     try:
@@ -446,10 +453,6 @@ def update_task_status(db: Session, task_id: int, status: str, requester_id: int
     except ValueError:
         raise TaskError(f"Invalid status: {status}")
 
-    assignment = db.query(TaskAssignment).filter(
-        TaskAssignment.task_id == task_id,
-        TaskAssignment.user_id == requester_id,
-    ).first()
     if assignment:
         try:
             assignment.status = AssignmentStatus(status)
