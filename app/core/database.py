@@ -14,6 +14,7 @@ if ":memory:" in settings.DATABASE_URL:
 
 _DB_URL = settings.DATABASE_URL
 _IS_SQLITE = _DB_URL.startswith("sqlite")
+_PG_STATEMENT_TIMEOUT_MS = 3000  # max query duration for PostgreSQL connections
 
 # ▀▀ Dialect-aware engine — SQLite and PostgreSQL have different connect_args ▀▀
 if _IS_SQLITE:
@@ -50,6 +51,19 @@ if _IS_SQLITE:
             cursor.close()
         except Exception as exc:
             _log.warning("[database.py] PRAGMA setup warning: %s", exc)
+else:
+    # PostgreSQL safety — enforce query timeout at the connection level
+    @event.listens_for(engine, "connect")
+    def set_postgresql_timeout(dbapi_conn, _connection_record):
+        """Set statement_timeout to 3000ms for every new PostgreSQL connection."""
+        try:
+            cursor = dbapi_conn.cursor()
+            try:
+                cursor.execute(f"SET statement_timeout = {_PG_STATEMENT_TIMEOUT_MS}")
+            finally:
+                cursor.close()
+        except Exception as exc:
+            _log.warning("[database.py] PostgreSQL timeout setup warning: %s", exc)
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
