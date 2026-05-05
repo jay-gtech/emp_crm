@@ -66,21 +66,34 @@ def _sync_task_aggregate_status(db: Session, task_id: int) -> None:
         if not task:
             return
 
-        assignments = (
-            db.query(TaskAssignment.status)
+        # One aggregation query replaces: fetch-all-statuses + Python all()/any().
+        # Returns (total, completed, pending_approval, in_progress) as scalars.
+        from sqlalchemy import func, case
+        row = (
+            db.query(
+                func.count(TaskAssignment.id).label("total"),
+                func.sum(
+                    case((TaskAssignment.status == AssignmentStatus.completed, 1), else_=0)
+                ).label("n_completed"),
+                func.sum(
+                    case((TaskAssignment.status == AssignmentStatus.pending_approval, 1), else_=0)
+                ).label("n_pending"),
+                func.sum(
+                    case((TaskAssignment.status == AssignmentStatus.in_progress, 1), else_=0)
+                ).label("n_in_progress"),
+            )
             .filter(TaskAssignment.task_id == task_id)
-            .all()
+            .one()
         )
-        if not assignments:
+
+        if not row.total:
             return
 
-        statuses = [a.status for a in assignments]
-
-        if all(s == AssignmentStatus.completed for s in statuses):
+        if row.n_completed == row.total:
             new_status = TaskStatus.completed
-        elif any(s == AssignmentStatus.pending_approval for s in statuses):
+        elif row.n_pending:
             new_status = TaskStatus.pending_approval
-        elif any(s == AssignmentStatus.in_progress for s in statuses):
+        elif row.n_in_progress:
             new_status = TaskStatus.in_progress
         else:
             new_status = TaskStatus.assigned
