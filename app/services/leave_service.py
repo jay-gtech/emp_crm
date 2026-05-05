@@ -1,4 +1,5 @@
 from datetime import date
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.models.leave import Leave, LeaveType, LeaveStatus
 from app.core.config import settings
@@ -31,8 +32,8 @@ def apply_leave(
 
     # Enforce annual leave quota (pending + pending_manager + approved all count)
     current_year = start_date.year
-    existing = (
-        db.query(Leave)
+    used_days = (
+        db.query(func.sum(Leave.total_days))
         .filter(
             Leave.employee_id == employee_id,
             Leave.status.in_([
@@ -43,9 +44,8 @@ def apply_leave(
             Leave.start_date >= date(current_year, 1, 1),
             Leave.end_date <= date(current_year, 12, 31),
         )
-        .all()
+        .scalar() or 0
     )
-    used_days = sum(l.total_days for l in existing)
     quota = settings.LEAVE_ANNUAL_QUOTA
     if used_days + total_days > quota:
         remaining = max(quota - used_days, 0)
@@ -90,17 +90,16 @@ def apply_leave(
 def get_leave_balance(db: Session, employee_id: int, year: int | None = None) -> dict:
     """Returns used/remaining days. Quota is a fixed annual constant."""
     current_year = year or date.today().year
-    used = (
-        db.query(Leave)
+    used_days = (
+        db.query(func.sum(Leave.total_days))
         .filter(
             Leave.employee_id == employee_id,
             Leave.status == LeaveStatus.approved,
             Leave.start_date >= date(current_year, 1, 1),
             Leave.end_date <= date(current_year, 12, 31),
         )
-        .all()
+        .scalar() or 0
     )
-    used_days = sum(l.total_days for l in used)
     quota = settings.LEAVE_ANNUAL_QUOTA
     return {
         "quota": quota,
