@@ -320,48 +320,77 @@ def get_team_comparison(db: Session) -> list[dict]:
     """
     try:
         Attendance, Task, TaskStatus, Leave, LeaveStatus, _, User = _models()
+        from app.models.task import TaskAssignment as _TA
 
         users = db.query(User).filter(User.is_active == 1).all()
+        if not users:
+            return []
+
+        user_ids = [u.id for u in users]
         today = date.today()
         first_of_month = today.replace(day=1)
+        start_of_year = date(today.year, 1, 1)
 
+        # ── 1. Task totals and completed counts ───────────────────────────────
+        # Fetch (user_id, status) for all users in one query, aggregate in Python.
+        # This is SQLite-safe and avoids any CASE/CAST portability issues.
+        status_rows = (
+            db.query(_TA.user_id, _TA.status)
+            .filter(_TA.user_id.in_(user_ids))
+            .all()
+        )
+        task_total: dict[int, int] = defaultdict(int)
+        task_done: dict[int, int] = defaultdict(int)
+        for uid, status in status_rows:
+            task_total[uid] += 1
+            if status.value == "completed":
+                task_done[uid] += 1
+
+        # ── 2. Attendance count this month — one GROUP BY query ───────────────
+        att_rows = (
+            db.query(
+                Attendance.employee_id,
+                func.count(Attendance.id).label("cnt"),
+            )
+            .filter(
+                Attendance.employee_id.in_(user_ids),
+                Attendance.date >= first_of_month,
+            )
+            .group_by(Attendance.employee_id)
+            .all()
+        )
+        att_map: dict[int, int] = {uid: cnt for uid, cnt in att_rows}
+
+        # ── 3. Leave days this year — one GROUP BY query ───────────────────────
+        leave_rows = (
+            db.query(
+                Leave.employee_id,
+                func.sum(Leave.total_days).label("days"),
+            )
+            .filter(
+                Leave.employee_id.in_(user_ids),
+                Leave.status == LeaveStatus.approved,
+                Leave.start_date >= start_of_year,
+            )
+            .group_by(Leave.employee_id)
+            .all()
+        )
+        leave_map: dict[int, int] = {uid: int(days or 0) for uid, days in leave_rows}
+
+        # ── Assemble result from pre-fetched dicts (zero extra queries) ────────
         result = []
         for u in users:
-            try:
-                from app.models.task import TaskAssignment as _TA
-                _assignments = db.query(_TA).filter(_TA.user_id == u.id).all()
-                total = len(_assignments)
-                completed = sum(1 for a in _assignments if a.status.value == "completed")
-                rate = round((completed / total) * 100, 1) if total else 0.0
-
-                att_days = (
-                    db.query(Attendance)
-                    .filter(
-                        Attendance.employee_id == u.id,
-                        Attendance.date >= first_of_month,
-                    )
-                    .count()
-                )
-
-                leave_days = sum(
-                    lv.total_days or 0
-                    for lv in db.query(Leave).filter(
-                        Leave.employee_id == u.id,
-                        Leave.status == LeaveStatus.approved,
-                        Leave.start_date >= date(today.year, 1, 1),
-                    ).all()
-                )
-
-                result.append({
-                    "user_id": u.id,
-                    "name": u.name,
-                    "role": u.role.value if hasattr(u.role, "value") else str(u.role),
-                    "task_completion_rate": rate,
-                    "attendance_days": att_days,
-                    "leave_days": leave_days,
-                })
-            except Exception:
-                continue  # skip one bad user; continue with the rest
+            total = task_total[u.id]
+            done  = task_done[u.id]
+            rate  = round((done / total) * 100, 1) if total else 0.0
+            result.append({
+                "user_id": u.id,
+                "name": u.name,
+                "role": u.role.value if hasattr(u.role, "value") else str(u.role),
+                "task_completion_rate": rate,
+                "attendance_days": att_map.get(u.id, 0),
+                "leave_days": leave_map.get(u.id, 0),
+            })
 
         result.sort(key=lambda x: x["task_completion_rate"], reverse=True)
         return result
@@ -614,26 +643,53 @@ def get_workload_distribution(db) -> dict:
     """
     try:
         Attendance, Task, TaskStatus, Leave, LeaveStatus, _, User = _models()
+        from app.models.task import TaskAssignment as _TA
         today = date.today()
 
         users = db.query(User).filter(User.is_active == 1).all()
-        names, active, completed, overdue = [], [], [], []
+        if not users:
+            return {"employees": [], "active": [], "completed": [], "overdue": []}
 
-        for u in users:
-            from app.models.task import TaskAssignment as _TA
-            _assignments = db.query(_TA).filter(_TA.user_id == u.id).all()
-            n_completed = sum(1 for a in _assignments if a.status.value == "completed")
-            n_active    = sum(1 for a in _assignments if a.status.value != "completed")
-            n_overdue   = (
-                db.query(_TA)
-                .join(Task, _TA.task_id == Task.id)
-                .filter(_TA.user_id == u.id, _TA.status != "completed", Task.due_date < today)
-                .count()
+        user_ids = [u.id for u in users]
+
+        # ── 1. Completed / active counts — one lean status scan for all users ──
+        status_rows = (
+            db.query(_TA.user_id, _TA.status)
+            .filter(_TA.user_id.in_(user_ids))
+            .all()
+        )
+        n_completed_map: dict[int, int] = defaultdict(int)
+        n_active_map:    dict[int, int] = defaultdict(int)
+        for uid, status in status_rows:
+            if status.value == "completed":
+                n_completed_map[uid] += 1
+            else:
+                n_active_map[uid] += 1
+
+        # ── 2. Overdue counts — one JOIN + GROUP BY for all users ──────────────
+        overdue_rows = (
+            db.query(_TA.user_id, func.count(_TA.id).label("cnt"))
+            .join(Task, _TA.task_id == Task.id)
+            .filter(
+                _TA.user_id.in_(user_ids),
+                _TA.status != "completed",
+                Task.due_date < today,
             )
+            .group_by(_TA.user_id)
+            .all()
+        )
+        n_overdue_map: dict[int, int] = {uid: cnt for uid, cnt in overdue_rows}
+
+        # ── Assemble from dicts (zero extra queries) ───────────────────────────
+        names:     list[str] = []
+        active:    list[int] = []
+        completed: list[int] = []
+        overdue:   list[int] = []
+        for u in users:
             names.append(u.name)
-            active.append(n_active)
-            completed.append(n_completed)
-            overdue.append(n_overdue)
+            active.append(n_active_map[u.id])
+            completed.append(n_completed_map[u.id])
+            overdue.append(n_overdue_map.get(u.id, 0))
 
         # Sort by active desc
         order = sorted(range(len(names)), key=lambda i: active[i], reverse=True)
@@ -994,52 +1050,114 @@ def get_system_task_stats(db: Session) -> dict:
     try:
         from app.models.task import TaskAssignment, AssignmentStatus, Task, TaskStatus
 
-        all_assignments = db.query(TaskAssignment).all()
-        assigned_task_ids = {a.task_id for a in all_assignments}
-
-        legacy_tasks = (
-            db.query(Task)
-            .filter(Task.id.notin_(assigned_task_ids))
+        # ── TaskAssignment aggregates (new-style rows) — all in one query ─────
+        # Fetch (status, is_delayed, duration_seconds) as lightweight scalars;
+        # GROUP BY status gives counts, a second pass covers delay + duration.
+        ta_status_rows = (
+            db.query(
+                TaskAssignment.status,
+                func.count(TaskAssignment.id).label("cnt"),
+                func.sum(
+                    func.cast(TaskAssignment.is_delayed == True, func.Integer())
+                ).label("delayed_cnt"),
+                func.sum(TaskAssignment.duration_seconds).label("dur_sum"),
+                func.sum(
+                    func.cast(
+                        (TaskAssignment.duration_seconds != None) &
+                        (TaskAssignment.duration_seconds > 0),
+                        func.Integer()
+                    )
+                ).label("dur_count"),
+            )
+            .group_by(TaskAssignment.status)
             .all()
-        ) if assigned_task_ids else db.query(Task).all()
-
-        total     = len(all_assignments) + len(legacy_tasks)
-        completed = (
-            [a for a in all_assignments if a.status == AssignmentStatus.completed]
-            + [t for t in legacy_tasks if t.status == TaskStatus.completed]
-        )
-        in_prog   = (
-            [a for a in all_assignments if a.status == AssignmentStatus.in_progress]
-            + [t for t in legacy_tasks if t.status == TaskStatus.in_progress]
-        )
-        pend_ap   = (
-            [a for a in all_assignments if a.status == AssignmentStatus.pending_approval]
-            + [t for t in legacy_tasks if t.status == TaskStatus.pending_approval]
-        )
-        assigned  = (
-            [a for a in all_assignments if a.status == AssignmentStatus.assigned]
-            + [t for t in legacy_tasks if t.status == TaskStatus.assigned]
-        )
-        delayed   = (
-            [a for a in all_assignments if getattr(a, "is_delayed", False)]
-            + [t for t in legacy_tasks if getattr(t, "is_delayed", False)]
         )
 
-        durations = [
-            x.duration_seconds for x in completed
-            if getattr(x, "duration_seconds", None) and x.duration_seconds > 0
-        ]
-        avg_dur_min = round(sum(durations) / len(durations) / 60, 1) if durations else 0.0
-        rate        = round(len(completed) / total * 100, 1) if total else 0.0
+        # Accumulate from the grouped rows (one Python iteration, ≤5 rows)
+        ta_total = ta_completed = ta_in_prog = ta_pend_ap = ta_assigned = 0
+        ta_delayed = 0
+        ta_dur_sum = 0
+        ta_dur_cnt = 0
+        for row in ta_status_rows:
+            cnt = row.cnt or 0
+            ta_total += cnt
+            if row.status == AssignmentStatus.completed:
+                ta_completed += cnt
+                ta_dur_sum += row.dur_sum or 0
+                ta_dur_cnt += row.dur_count or 0
+            elif row.status == AssignmentStatus.in_progress:
+                ta_in_prog += cnt
+            elif row.status == AssignmentStatus.pending_approval:
+                ta_pend_ap += cnt
+            elif row.status == AssignmentStatus.assigned:
+                ta_assigned += cnt
+            ta_delayed += row.delayed_cnt or 0
+
+        # Distinct task_ids that have at least one assignment row
+        assigned_task_ids_q = db.query(TaskAssignment.task_id).distinct().subquery()
+
+        # ── Legacy Task aggregates (tasks with NO assignment rows) ─────────────
+        lt_status_rows = (
+            db.query(
+                Task.status,
+                func.count(Task.id).label("cnt"),
+                func.sum(
+                    func.cast(Task.is_delayed == True, func.Integer())
+                ).label("delayed_cnt"),
+                func.sum(Task.duration_seconds).label("dur_sum"),
+                func.sum(
+                    func.cast(
+                        (Task.duration_seconds != None) &
+                        (Task.duration_seconds > 0),
+                        func.Integer()
+                    )
+                ).label("dur_count"),
+            )
+            .filter(Task.id.notin_(assigned_task_ids_q))
+            .group_by(Task.status)
+            .all()
+        )
+
+        lt_total = lt_completed = lt_in_prog = lt_pend_ap = lt_assigned = 0
+        lt_delayed = 0
+        lt_dur_sum = 0
+        lt_dur_cnt = 0
+        for row in lt_status_rows:
+            cnt = row.cnt or 0
+            lt_total += cnt
+            if row.status == TaskStatus.completed:
+                lt_completed += cnt
+                lt_dur_sum += row.dur_sum or 0
+                lt_dur_cnt += row.dur_count or 0
+            elif row.status == TaskStatus.in_progress:
+                lt_in_prog += cnt
+            elif row.status == TaskStatus.pending_approval:
+                lt_pend_ap += cnt
+            elif row.status == TaskStatus.assigned:
+                lt_assigned += cnt
+            lt_delayed += row.delayed_cnt or 0
+
+        # ── Combine and compute derived metrics ───────────────────────────────
+        total      = ta_total    + lt_total
+        completed  = ta_completed + lt_completed
+        in_prog    = ta_in_prog  + lt_in_prog
+        pend_ap    = ta_pend_ap  + lt_pend_ap
+        assigned   = ta_assigned + lt_assigned
+        delayed    = ta_delayed  + lt_delayed
+        dur_sum    = ta_dur_sum  + lt_dur_sum
+        dur_cnt    = ta_dur_cnt  + lt_dur_cnt
+
+        avg_dur_min = round(dur_sum / dur_cnt / 60, 1) if dur_cnt else 0.0
+        rate        = round(completed / total * 100, 1) if total else 0.0
 
         return {
-            "total":             total,
-            "completed":         len(completed),
-            "in_progress":       len(in_prog),
-            "pending_approval":  len(pend_ap),
-            "assigned":          len(assigned),
-            "delayed":           len(delayed),
-            "completion_rate":   rate,
+            "total":                total,
+            "completed":            completed,
+            "in_progress":          in_prog,
+            "pending_approval":     pend_ap,
+            "assigned":             assigned,
+            "delayed":              delayed,
+            "completion_rate":      rate,
             "avg_duration_minutes": avg_dur_min,
         }
     except Exception as exc:
