@@ -8,6 +8,7 @@ the others or crashes the dashboard.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.attendance import Attendance
@@ -74,11 +75,21 @@ def get_employee_performance(db: Session, employee_id: int) -> dict:
 
         avg_daily_hours = round(week_hours / days_worked, 1) if days_worked > 0 else 0.0
 
-        # Personal task stats via task_assignments (single source of truth)
+        # Personal task stats — one SQL aggregation query instead of loading all rows
         from app.models.task import TaskAssignment as _TA, AssignmentStatus as _AS
-        assignments = db.query(_TA).filter(_TA.user_id == employee_id).all()
-        tasks_assigned = len(assignments)
-        tasks_completed = sum(1 for a in assignments if a.status == _AS.completed)
+        from sqlalchemy import case as _case
+        task_row = (
+            db.query(
+                func.count(_TA.id).label("total"),
+                func.sum(
+                    _case((_TA.status == _AS.completed, 1), else_=0)
+                ).label("completed"),
+            )
+            .filter(_TA.user_id == employee_id)
+            .one()
+        )
+        tasks_assigned  = task_row.total or 0
+        tasks_completed = task_row.completed or 0
         task_completion_rate = (
             round(tasks_completed / tasks_assigned * 100)
             if tasks_assigned > 0
@@ -195,10 +206,18 @@ def get_overdue_count(db: Session) -> int:
 # 4. Alert list
 # ---------------------------------------------------------------------------
 
-def get_alerts(db: Session, role: str, user_id: int) -> list[dict]:
+def get_alerts(
+    db: Session,
+    role: str,
+    user_id: int,
+    overdue_count: int | None = None,   # pass pre-computed value to skip re-query
+) -> list[dict]:
     """
     Returns a list of alert dicts: {"type": "warning"|"danger", "message": str}
     Never raises; returns [] on failure.
+
+    Pass ``overdue_count`` if the caller already has it (e.g. the dashboard
+    route) to avoid issuing a second identical COUNT query.
     """
     alerts: list[dict] = []
     try:
@@ -236,22 +255,23 @@ def get_alerts(db: Session, role: str, user_id: int) -> list[dict]:
                         "message": f"{u.name} has not clocked in today.",
                     })
 
-            # 2. Overdue tasks
-            overdue = (
-                db.query(Task)
-                .filter(
-                    Task.due_date.isnot(None),
-                    Task.due_date < today,
-                    Task.status != TaskStatus.completed,
+            # 2. Overdue tasks — reuse caller's value when available
+            if overdue_count is None:
+                overdue_count = (
+                    db.query(Task)
+                    .filter(
+                        Task.due_date.isnot(None),
+                        Task.due_date < today,
+                        Task.status != TaskStatus.completed,
+                    )
+                    .count()
                 )
-                .count()
-            )
-            if overdue > 0:
-                word = "tasks are" if overdue > 1 else "task is"
+            if overdue_count > 0:
+                word = "tasks are" if overdue_count > 1 else "task is"
                 alerts.append({
                     "type": "danger",
                     "icon": "🔴",
-                    "message": f"{overdue} {word} overdue.",
+                    "message": f"{overdue_count} {word} overdue.",
                 })
 
         # ── Personal alerts (all roles) ─────────────────────────────────────
@@ -308,23 +328,48 @@ def get_team_performance(db: Session, request_user: dict | None = None) -> list[
             .order_by(User.name)
             .all()
         )
+        if not employees:
+            return []
 
-        result: list[dict] = []
+        from app.models.task import TaskAssignment as _TA, AssignmentStatus as _AS
+        from collections import defaultdict
 
-        for emp in employees:
-            # ── hours this week ──────────────────────────────────────────
-            att_records = (
-                db.query(Attendance)
-                .filter(
-                    Attendance.employee_id == emp.id,
-                    Attendance.date >= week_start,
-                    Attendance.date <= today,
-                )
-                .all()
+        emp_ids = [emp.id for emp in employees]
+
+        # ── 1. All attendance rows this week — one query for all employees ─────
+        all_att = (
+            db.query(Attendance)
+            .filter(
+                Attendance.employee_id.in_(emp_ids),
+                Attendance.date >= week_start,
+                Attendance.date <= today,
             )
+            .all()
+        )
+        # Group by employee_id for O(1) lookup in the loop
+        att_by_emp: dict[int, list] = defaultdict(list)
+        for rec in all_att:
+            att_by_emp[rec.employee_id].append(rec)
 
+        # ── 2. All assignment statuses — one lean 2-column query for all employees
+        status_rows = (
+            db.query(_TA.user_id, _TA.status)
+            .filter(_TA.user_id.in_(emp_ids))
+            .all()
+        )
+        total_map:     dict[int, int] = defaultdict(int)
+        completed_map: dict[int, int] = defaultdict(int)
+        for uid, status in status_rows:
+            total_map[uid] += 1
+            if status == _AS.completed:
+                completed_map[uid] += 1
+
+        # ── Assemble — zero extra queries inside the loop ─────────────────────
+        result: list[dict] = []
+        for emp in employees:
+            # Hours computation preserves the "today in-progress" elapsed logic
             week_hours = 0.0
-            for rec in att_records:
+            for rec in att_by_emp[emp.id]:
                 if not rec.clock_in_time:
                     continue
                 brk = rec.total_break_hours or 0.0
@@ -334,19 +379,14 @@ def get_team_performance(db: Session, request_user: dict | None = None) -> list[
                     elapsed = (now - rec.clock_in_time).total_seconds() / 3600
                     week_hours += max(elapsed - brk, 0.0)
 
-            # ── task stats via task_assignments ──────────────────────────
-            from app.models.task import TaskAssignment as _TA, AssignmentStatus as _AS
-            _assignments = db.query(_TA).filter(_TA.user_id == emp.id).all()
-            total_tasks = len(_assignments)
-            completed_tasks = sum(1 for a in _assignments if a.status == _AS.completed)
+            total_tasks = total_map[emp.id]
+            completed_tasks = completed_map[emp.id]
             task_completion_rate = (
                 round(completed_tasks / total_tasks * 100)
                 if total_tasks > 0
                 else 0
             )
 
-            # ── composite performance score ──────────────────────────────
-            # Hours component: % of a 40-h target (capped at 100)
             hours_score = min(round(week_hours / 40 * 100), 100)
             performance_score = round(
                 task_completion_rate * 0.60 + hours_score * 0.40
@@ -382,7 +422,11 @@ _LOW_HOURS_THRESHOLD: float = 20.0   # < 20 h/week
 _LOW_TASK_RATE: int = 40             # < 40 % task completion
 
 
-def get_low_performers(db: Session, request_user: dict | None = None) -> list[dict]:
+def get_low_performers(
+    db: Session,
+    request_user: dict | None = None,
+    team: list[dict] | None = None,   # pass pre-computed result to avoid double query
+) -> list[dict]:
     """
     Returns a subset of get_team_performance() entries that meet at least one
     low-performance criterion.
@@ -390,10 +434,14 @@ def get_low_performers(db: Session, request_user: dict | None = None) -> list[di
     Each dict has the same keys as get_team_performance() plus:
       low_hours (bool), low_tasks (bool)
 
+    Pass ``team`` (the result of a prior get_team_performance call) to avoid
+    executing the query a second time on the same request.
+
     Returns [] on any exception.
     """
     try:
-        team = get_team_performance(db, request_user=request_user)
+        if team is None:
+            team = get_team_performance(db, request_user=request_user)
         low: list[dict] = []
         for member in team:
             low_hours = member["week_hours"] < _LOW_HOURS_THRESHOLD
@@ -425,28 +473,55 @@ def get_task_distribution(db: Session, request_user: dict | None = None) -> dict
     """
     _safe = {"total": 0, "completed": 0, "pending": 0, "in_progress": 0, "overdue": 0}
     try:
-        all_tasks = db.query(Task).all()
-        if request_user and apply_hierarchy_filter:
-            all_tasks = apply_hierarchy_filter(db, request_user, all_tasks)
         today = date.today()
 
-        total = len(all_tasks)
-        completed = sum(1 for t in all_tasks if t.status == TaskStatus.completed)
-        pending = sum(1 for t in all_tasks if t.status == TaskStatus.pending)
-        in_progress = sum(1 for t in all_tasks if t.status == TaskStatus.in_progress)
-        overdue = sum(
-            1 for t in all_tasks
-            if t.due_date is not None
-            and t.due_date < today
-            and t.status != TaskStatus.completed
+        # Hierarchy-scoped path: apply_hierarchy_filter works on ORM objects,
+        # so we must load tasks into memory and count in Python for this branch.
+        if request_user and apply_hierarchy_filter:
+            all_tasks = apply_hierarchy_filter(db, request_user, db.query(Task).all())
+            return {
+                "total":       len(all_tasks),
+                "completed":   sum(1 for t in all_tasks if t.status == TaskStatus.completed),
+                "pending":     sum(1 for t in all_tasks if t.status == TaskStatus.pending),
+                "in_progress": sum(1 for t in all_tasks if t.status == TaskStatus.in_progress),
+                "overdue":     sum(
+                    1 for t in all_tasks
+                    if t.due_date is not None
+                    and t.due_date < today
+                    and t.status != TaskStatus.completed
+                ),
+            }
+
+        # Unscoped path (admin / no filter): push all counting to the database.
+        # One GROUP BY query for status counts + one scalar query for overdue.
+        status_rows = (
+            db.query(Task.status, func.count(Task.id).label("cnt"))
+            .group_by(Task.status)
+            .all()
+        )
+        counts: dict = {}
+        total = 0
+        for status, cnt in status_rows:
+            key = status.value if hasattr(status, "value") else str(status)
+            counts[key] = cnt
+            total += cnt
+
+        overdue = (
+            db.query(func.count(Task.id))
+            .filter(
+                Task.due_date.isnot(None),
+                Task.due_date < today,
+                Task.status != TaskStatus.completed,
+            )
+            .scalar() or 0
         )
 
         return {
-            "total": total,
-            "completed": completed,
-            "pending": pending,
-            "in_progress": in_progress,
-            "overdue": overdue,
+            "total":       total,
+            "completed":   counts.get(TaskStatus.completed.value, 0),
+            "pending":     counts.get(TaskStatus.pending.value, 0),
+            "in_progress": counts.get(TaskStatus.in_progress.value, 0),
+            "overdue":     overdue,
         }
     except Exception:
         return _safe
