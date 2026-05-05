@@ -140,7 +140,10 @@ def dashboard(
                 team_performance = []
 
             try:
-                low_performers = get_low_performers(db, request_user=current_user)
+                # Reuse the already-fetched team list — no second DB round-trip
+                low_performers = get_low_performers(
+                    db, request_user=current_user, team=team_performance or None
+                )
             except Exception:
                 low_performers = []
 
@@ -155,7 +158,8 @@ def dashboard(
             overdue_count = 0
 
         try:
-            alerts = get_alerts(db, role, uid)
+            # Pass overdue_count so get_alerts skips re-running the same COUNT
+            alerts = get_alerts(db, role, uid, overdue_count=overdue_count)
         except Exception:
             alerts = []
 
